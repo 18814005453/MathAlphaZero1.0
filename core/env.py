@@ -1,115 +1,129 @@
 # core/env.py
 from sympy import Integral, preorder_traversal, Symbol
 from core.state import IntegrationState
-from knowledge.rules import RULE_DICT, RULE_NAMES
+from knowledge.rule_registry import get_rule_by_name, get_rule_id, get_all_rule_names, get_num_rules
 from core.actions import Action
-
+import time
+from typing import Tuple, Optional, Dict, Any
 
 class IntegrationEnv:
-    def __init__(self, max_steps=20):
-        """
-        初始化积分环境
-        :param max_steps: 最大允许步数，防止无限循环
-        """
-        self.rules = RULE_DICT
+    def __init__(self, max_steps=20, time_limit=None, simplify_reward_alpha=0.2, simplify_reward_beta=3.0):
         self.max_steps = max_steps
+        self.time_limit = time_limit
+        self.simplify_alpha = simplify_reward_alpha
+        self.simplify_beta = simplify_reward_beta
         self.steps_taken = 0
-        self.original_expr = None  # 可选，用于计算全局奖励
+        self.start_time = None
+        self.initial_complexity = None
+        self._rule_name_to_id = {name: idx for idx, name in enumerate(get_all_rule_names())}
+        self._valid_rule_ids = set(self._rule_name_to_id.values())
 
     def reset(self, expr):
-        """重置环境，准备新的积分问题"""
         self.steps_taken = 0
-        self.original_expr = expr
-        return IntegrationState(expr=expr)
+        self.start_time = time.time() if self.time_limit else None
+        state = IntegrationState(expr=expr, depth=0, history_hashes=set())
+        self.initial_complexity = state.ast_complexity()
+        return state
 
-    def is_terminal(self, state):
-        """
-        判断是否终止（积分完成或超出步数限制）
-        :return: (is_terminal, reward)
-        """
+    def _compute_simplify_reward(self, old_complexity: int, new_complexity: int) -> float:
+        if new_complexity <= old_complexity:
+            reduction_ratio = (old_complexity - new_complexity) / max(old_complexity, 1)
+            r = self.simplify_alpha * (reduction_ratio ** 0.5)
+            return min(r, 0.3)
+        else:
+            increase_ratio = (new_complexity - old_complexity) / max(old_complexity, 1)
+            return -0.05 * min(increase_ratio, 2.0)
+
+    def is_terminal(self, state) -> Tuple[bool, float]:
         if self.steps_taken >= self.max_steps:
-            return True, -0.5  # 步数超限给予负奖励
+            return True, -0.3
+        
+        if self.time_limit is not None and self.start_time is not None:
+            elapsed = time.time() - self.start_time
+            if elapsed > self.time_limit:
+                current_c = state.ast_complexity()
+                if self.initial_complexity is not None:
+                    reduction = (self.initial_complexity - current_c) / max(self.initial_complexity, 1)
+                    partial_reward = 0.2 * max(0, reduction)
+                else:
+                    partial_reward = 0.0
+                return True, partial_reward - 0.1
+        
         if not state.expr.has(Integral):
-            return True, 1.0  # 成功消去所有积分，正奖励
+            if self.initial_complexity is not None:
+                final_reduction = (self.initial_complexity - state.ast_complexity()) / max(self.initial_complexity, 1)
+                final_bonus = 0.2 * max(0, final_reduction)
+            else:
+                final_bonus = 0.0
+            return True, 1.0 + final_bonus
+        
         return False, 0.0
 
     def legal_actions(self, state):
-        """
-        利用 SymPy 匹配机制，返回所有可应用的动作。
-        """
         expr = state.expr
         integrals = list(expr.atoms(Integral))
-        actions = set()  # 使用 set 去重，防止同一规则对同一表达式多次添加
-
+        actions = set()
         for integral in integrals:
-            for rule_name, rule_func in self.rules.items():
-                result = rule_func(integral)
-                if result is not None:
-                    # ✅ 修复点 1：获取该规则的真实物理 ID，并遵循 Action(id, name) 的冻结数据类结构
-                    rule_id = RULE_NAMES.index(rule_name)
-                    action = Action(id=rule_id, name=rule_name)
-                    actions.add(action)
-
+            for rule_name in get_all_rule_names():
+                rule_func = get_rule_by_name(rule_name)
+                try:
+                    res = rule_func(integral)
+                    if res is not None:
+                        rule_id = self._rule_name_to_id[rule_name]
+                        actions.add(Action(id=rule_id, name=rule_name))
+                except Exception:
+                    continue
         return list(actions)
 
     def step(self, state, action):
-        """
-        执行动作，返回 (next_state, reward, done, info)
-        """
         self.steps_taken += 1
-        expr = state.expr
         rule_name = action.name
-        rule_func = self.rules[rule_name]
+        rule_func = get_rule_by_name(rule_name)
+        expr = state.expr
 
-        current_integrals = list(expr.atoms(Integral))
         target_integral = None
         result = None
-
-        # ✅ 修复点 2：在 step 中重新定位目标积分，完全解耦 Action 与目标状态
-        for integral in current_integrals:
-            res = rule_func(integral)
-            if res is not None:
-                target_integral = integral
-                result = res
-                break
+        for integral in expr.atoms(Integral):
+            try:
+                res = rule_func(integral)
+                if res is not None:
+                    target_integral = integral
+                    result = res
+                    break
+            except:
+                continue
 
         if target_integral is None or result is None:
-            return state, -0.2, True, {"msg": "target_integral_not_found_or_invalid"}
+            return state, -0.2, True, {"msg": "invalid_action"}
 
         new_sub_expr, status = result
-
-        # 替换原表达式中的积分部分
         if status == "substitution":
-            # ✅ 修复点 3：解决换元状态下的符号污染与链式系数丢失问题
-            # 将 u 临时转换为 x 交给网络继续处理，并乘上链式法则 factor
             u_sym = Symbol('u')
             temp_integral = new_sub_expr['integral'].subs(u_sym, Symbol('x'))
             new_expr = expr.subs(target_integral, new_sub_expr['factor'] * temp_integral)
         else:
             new_expr = expr.subs(target_integral, new_sub_expr)
 
-        # 计算启发式奖励（基于节点数的变化）
-        old_nodes = len(list(preorder_traversal(expr)))
-        new_nodes = len(list(preorder_traversal(new_expr)))
-        heuristic_reward = (old_nodes - new_nodes) / max(old_nodes, 1e-6)  # 节点减少比例
-
-        # ✅ 修复点 4：继承并追加历史哈希，激活 MCTS 死循环防御机制
-        new_hashes = set(state.history_hashes) if hasattr(state, 'history_hashes') and state.history_hashes else set()
-        new_hashes.add(state.canonical_hash())
-
+        old_c = state.ast_complexity()
         next_state = IntegrationState(
             expr=new_expr,
             depth=state.depth + 1,
-            history_hashes=new_hashes
+            history_hashes=state.history_hashes.union({state.canonical_hash()})
         )
+        new_c = next_state.ast_complexity()
+        simplify_reward = self._compute_simplify_reward(old_c, new_c)
 
-        # 判断是否终止
-        done = not new_expr.has(Integral) or self.steps_taken >= self.max_steps
-        if done and not new_expr.has(Integral):
-            reward = 1.0 + heuristic_reward
-        elif done and self.steps_taken >= self.max_steps:
-            reward = -0.5 + heuristic_reward
+        done, terminal_reward = self.is_terminal(next_state)
+        if done:
+            reward = terminal_reward
         else:
-            reward = heuristic_reward
+            reward = simplify_reward
 
-        return next_state, reward, done, {"msg": "step_forward"}
+        info = {
+            "simplify_reward": simplify_reward,
+            "complexity_before": old_c,
+            "complexity_after": new_c,
+            "steps": self.steps_taken,
+            "time_elapsed": time.time() - self.start_time if self.start_time else 0.0
+        }
+        return next_state, reward, done, info

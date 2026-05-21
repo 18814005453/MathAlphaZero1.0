@@ -1,35 +1,32 @@
+# discovery/generator.py
 import os
 import re
 import ast
 import sys
 import shutil
 import importlib
+from collections import defaultdict
 
+# 全局宏动作使用计数器（用于衰减）
+macro_usage_counter = defaultdict(int)
 
 def generate_macro_rule_code(rule_combination_names, new_rule_id):
     """
-    1. 动态宏规则代码生成器
-    将一组旧规则名称拼装组合，生成符合规则库规范的、顺序流水线执行的 Python 函数代码字符串。
-
-    :param rule_combination_names: 规则名称列表, 例如 ["TrigProductToSum", "ExtractConstant"]
-    :param new_rule_id: 新规则的唯一标识 ID
-    :return: (new_rule_name, code_string) 新规则名及完整的函数体字符串
+    生成组合规则函数的代码字符串。
+    rule_combination_names: 规则名称列表，如 ["TrigProductToSum", "ExtractConstant"]
+    new_rule_id: 整数 ID，用于生成唯一函数名
+    返回 (new_rule_name, code_string)
     """
     new_rule_name = f"rule_auto_macro_{new_rule_id}"
-
-    # 构建动态函数的骨架
     code_lines = [
         f"def {new_rule_name}(integral):",
-        f"    \"\"\"",
-        f"    Automatically generated macro rule (ID: {new_rule_id}).",
-        f"    Pipeline: {' -> '.join(rule_combination_names)}",
-        f"    \"\"\"",
+        f"    \"\"\"Automatically generated macro rule (ID: {new_rule_id}).\"\"\"",
+        f"    from discovery.generator import macro_usage_counter",
+        f"    macro_usage_counter['{new_rule_name}'] = macro_usage_counter.get('{new_rule_name}', 0) + 1",
         f"    current_integral = integral",
         f"    current_status = 'rewrite'",
         f""
     ]
-
-    # 串联执行流逻辑
     for rule in rule_combination_names:
         code_lines.extend([
             f"    # 执行子规则: {rule}",
@@ -41,179 +38,180 @@ def generate_macro_rule_code(rule_combination_names, new_rule_id):
             f"        return (current_integral, 'solved')",
             f""
         ])
-
-    # 最终返回流水线处理完的表达式及状态
     code_lines.append("    return (current_integral, current_status)\n")
-
     code_string = "\n".join(code_lines)
     return new_rule_name, code_string
 
-
 def append_rule_to_source_file(file_path, code_string, new_rule_name):
     """
-    2. 源码黑客改写器
-    将新生成的宏动作函数追加到文件末尾，并强行改写 RULE_NAMES 列表与 RULE_DICT 字典注册表。
-
-    :param file_path: 目标规则源码文件路径 (如 'knowledge/rules.py')
-    :param code_string: 步骤 1 生成的函数体字符串
-    :param new_rule_name: 新规则的方法名字符串
+    将新规则函数追加到源文件，并更新 RULE_NAMES 和 RULE_DICT。
+    注意：假设目标文件已经使用了 rule_registry 装饰器，但为了兼容旧代码，
+    我们仍会修改 RULE_NAMES 和 RULE_DICT（如果存在），并自动调用 build_action_space。
     """
-    # 建立安全备份，供第三步的验证失败回滚使用
     backup_path = file_path + ".bak"
     shutil.copyfile(file_path, backup_path)
-
     try:
-        # 第一步：以追加模式将完整的函数体“烫进”文件末尾
+        # 追加函数定义
         with open(file_path, 'a', encoding='utf-8') as f:
             f.write("\n\n" + code_string)
-
-        # 第二步：读取全文，利用正则表达式精准定位并重写注册表
+        # 读取全文
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
-        # 2.1 强行插入 RULE_NAMES 列表（在匹配到 'RULE_NAMES = [' 后换行插入新动作）
+        # 如果文件末尾有 build_action_space() 调用，我们需要在添加规则后重新调用
+        # 更简单：在 RULE_NAMES 列表和 RULE_DICT 中插入新规则（用于旧代码兼容）
         if "RULE_NAMES" in content:
-            content = re.sub(
-                r'(RULE_NAMES\s*=\s*\[)',
-                r'\1\n    "' + new_rule_name + '",',
-                content
-            )
-        else:
-            raise ValueError("在源码中未找到 RULE_NAMES 注册列表，无法扩容动作空间。")
-
-        # 2.2 强行插入 RULE_DICT 字典（在匹配到 'RULE_DICT = {' 后换行插入键值对）
+            # 在 RULE_NAMES = [ ... ] 中添加新名称
+            pattern_names = r'(RULE_NAMES\s*=\s*\[)([^\]]*)(\])'
+            def repl_names(m):
+                before = m.group(1)
+                middle = m.group(2)
+                after = m.group(3)
+                # 如果已经有该名称，跳过
+                if f'"{new_rule_name}"' in middle:
+                    return m.group(0)
+                new_middle = middle.rstrip() + f',\n    "{new_rule_name}"'
+                return before + new_middle + after
+            content = re.sub(pattern_names, repl_names, content, flags=re.DOTALL)
         if "RULE_DICT" in content:
-            content = re.sub(
-                r'(RULE_DICT\s*=\s*\{)',
-                r'\1\n    "' + new_rule_name + '": ' + new_rule_name + ',',
-                content
-            )
-        else:
-            raise ValueError("在源码中未找到 RULE_DICT 注册字典，无法映射动作句柄。")
-
-        # 将重写后的全新内容覆盖写入文件
+            pattern_dict = r'(RULE_DICT\s*=\s*\{)([^\}]*)(\})'
+            def repl_dict(m):
+                before = m.group(1)
+                middle = m.group(2)
+                after = m.group(3)
+                if f'"{new_rule_name}":' in middle:
+                    return m.group(0)
+                new_middle = middle.rstrip() + f',\n    "{new_rule_name}": {new_rule_name}'
+                return before + new_middle + after
+            content = re.sub(pattern_dict, repl_dict, content, flags=re.DOTALL)
+        # 确保文件末尾有 build_action_space() 调用
+        if "build_action_space" not in content:
+            content += "\n\n# 重建动作空间\nfrom knowledge.rule_registry import build_action_space\nbuild_action_space()\n"
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
-
     except Exception as e:
-        # 如果改写过程本身报错，立即从临时备份恢复
         if os.path.exists(backup_path):
             shutil.copyfile(backup_path, file_path)
         raise e
-
+    finally:
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
 
 def verify_generated_code(new_rule_name, file_path="knowledge/rules.py"):
     """
-    3. 编译安全性防御（语法检查与回滚机制）
-    利用 AST 静态解析与动态重载，确保新合成的代码未破坏系统稳定性。若失败则全自动无感回滚。
-
-    :param new_rule_name: 刚刚注册的新规则方法名
-    :param file_path: 目标规则源码文件路径
-    :return: bool 验证通过返回 True，失败回滚返回 False
+    编译和运行时验证新规则，失败则回滚。
     """
     backup_path = file_path + ".bak"
-
-    # 核心防御 1：AST 静态抽象语法树解析，严防少括号或缩进崩溃
+    # AST 语法检查
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             current_content = f.read()
         ast.parse(current_content)
     except SyntaxError as se:
-        print(f"❌【安全防御】检测到语法编译错误: {se}。正在触发自动回滚...")
+        print(f"❌ 语法错误: {se}，触发回滚")
         if os.path.exists(backup_path):
             shutil.copyfile(backup_path, file_path)
             os.remove(backup_path)
         return False
-
-    # 核心防御 2：动态重载模块，确保双塔网络等下游组件能顺利 import 并读取到扩容后的 len(RULE_NAMES)
+    # 动态重载模块
     try:
-        # 获取模块在 sys.modules 中的键名
         module_name = "knowledge.rules"
-
         if module_name in sys.modules:
-            # 强行刷新并重载内存中的模块
             imported_module = importlib.reload(sys.modules[module_name])
         else:
             imported_module = importlib.import_module(module_name)
-
-        # 检查函数句柄是否存在
         if not hasattr(imported_module, new_rule_name):
-            raise AttributeError(f"模块中未检测到函数句柄: {new_rule_name}")
-
-        # 检查注册表内是否确实存在
-        if new_rule_name not in getattr(imported_module, "RULE_NAMES", []):
-            raise ValueError(f"RULE_NAMES 中未成功包含新规则: {new_rule_name}")
-        if new_rule_name not in getattr(imported_module, "RULE_DICT", {}):
-            raise ValueError(f"RULE_DICT 中未成功包含映射: {new_rule_name}")
-
+            raise AttributeError(f"函数 {new_rule_name} 未找到")
+        # 检查是否在注册表中
+        from knowledge.rule_registry import get_all_rule_names
+        if new_rule_name not in get_all_rule_names():
+            raise ValueError(f"新规则 {new_rule_name} 未注册到 rule_registry")
     except Exception as e:
-        print(f"❌【安全防御】模块重载验证失败: {e}。正在触发自动回滚...")
+        print(f"❌ 重载验证失败: {e}，触发回滚")
         if os.path.exists(backup_path):
             shutil.copyfile(backup_path, file_path)
             os.remove(backup_path)
         return False
-
-    # 验证全部通过，安全移除备份
     if os.path.exists(backup_path):
         os.remove(backup_path)
-
-    print(f"🚀【安全防御】新规则 [{new_rule_name}] 静态编译与动态重载全部通过！动作空间已成功扩容。")
+    print(f"✅ 新规则 {new_rule_name} 验证通过，已激活")
     return True
 
+def prune_inactive_macros(threshold=50, rule_names_list=None, file_path="knowledge/rules.py"):
+    """
+    删除连续 threshold 轮未被使用的宏规则。
+    rule_names_list: 当前所有规则名称列表（用于过滤出宏规则）。
+    此函数会从源文件中移除对应的函数定义和注册条目。
+    """
+    global macro_usage_counter
+    inactive = [name for name, cnt in macro_usage_counter.items() if cnt < threshold and name.startswith("rule_auto_macro_")]
+    if not inactive:
+        print("没有需要淘汰的宏规则")
+        return
+    print(f"淘汰以下宏规则（使用次数 < {threshold}）: {inactive}")
+    # 备份原文件
+    backup_path = file_path + ".bak"
+    shutil.copyfile(file_path, backup_path)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        new_lines = []
+        skip_until_next_def = False
+        for line in lines:
+            # 检测是否是要删除的函数定义开始
+            if any(f"def {name}" in line for name in inactive):
+                skip_until_next_def = True
+                continue
+            if skip_until_next_def:
+                # 跳过直到下一个函数定义（非缩进行）
+                if line.strip() and not line.startswith(' ') and not line.startswith('\t'):
+                    skip_until_next_def = False
+                else:
+                    continue
+            new_lines.append(line)
+        # 重新写入
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+        # 同时从注册表的内存中移除（下次重载时自动生效）
+        from knowledge.rule_registry import _RULE_REGISTRY, _RULE_NAME_LIST, _RULE_ID_MAP
+        for name in inactive:
+            if name in _RULE_REGISTRY:
+                del _RULE_REGISTRY[name]
+            if name in _RULE_ID_MAP:
+                del _RULE_ID_MAP[name]
+            if name in _RULE_NAME_LIST:
+                _RULE_NAME_LIST.remove(name)
+        # 重置计数器
+        for name in inactive:
+            macro_usage_counter.pop(name, None)
+        # 重新构建动作空间
+        from knowledge.rule_registry import build_action_space
+        build_action_space()
+        print("✅ 宏规则淘汰完成，动作空间已更新")
+    except Exception as e:
+        print(f"❌ 淘汰过程出错: {e}，回滚")
+        if os.path.exists(backup_path):
+            shutil.copyfile(backup_path, file_path)
+    finally:
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
 
-# ==========================================
-# 模块联动与闭环测试演示 (Pipeline Workflow)
-# ==========================================
+# 测试入口
 if __name__ == "__main__":
-    # 为了演示，我们在本地临时创建一个模拟的 knowledge/rules.py 文件
     os.makedirs("knowledge", exist_ok=True)
-    mock_rules_content = """# 基础原子规则定义
-def TrigProductToSum(integral):
-    return (integral, "rewrite")
-
-def ExtractConstant(integral):
-    return (integral, "rewrite")
-
-# 核心注册表（双塔网络读取的源头）
-RULE_NAMES = [
-    "TrigProductToSum",
-    "ExtractConstant",
-]
-
-RULE_DICT = {
-    "TrigProductToSum": TrigProductToSum,
-    "ExtractConstant": ExtractConstant,
-}
+    mock_content = """from knowledge.rule_registry import register_rule
+@register_rule()
+def rule_power(integral): return (integral, "rewrite")
+RULE_NAMES = ["rule_power"]
+RULE_DICT = {"rule_power": rule_power}
 """
     test_file = "knowledge/rules.py"
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write(mock_rules_content)
-
-    print("--- 闭环流程开始 ---")
-
-    # 模拟从 pattern_miner.py 传过来的黄金套路名字和全局最新规则递增 ID
-    combination = ["TrigProductToSum", "ExtractConstant"]
-    next_id = 101
-
-    # Step 1: 生成流水线代码
-    r_name, r_code = generate_macro_rule_code(combination, next_id)
-    print(f"1. 成功生成宏函数代码，期望方法名: {r_name}")
-
-    # Step 2: 改写底层源码并注入注册表
-    append_rule_to_source_file(test_file, r_code, r_name)
-    print("2. 源码及注册表改写注入完成。")
-
-    # Step 3: 进行编译与重载安全性校验
-    # 将当前的 'knowledge' 目录加进环境路径确保测试时能 import
-    sys.path.append(os.getcwd())
-    success = verify_generated_code(r_name, file_path=test_file)
-    print(f"3. 闭环最终状态: {'成功缝合补丁！' if success else '回滚成功，主程序安全。'}")
-
-    # 打印看一眼被改写后的文件变成什么样了
-    with open(test_file, "r", encoding="utf-8") as f:
-        print("\n--- 注入改写后的 rules.py 实际效果展示 ---")
-        print(f.read())
-
-    # 清理测试产生的临时文件目录
+    with open(test_file, "w") as f:
+        f.write(mock_content)
+    combo = ["rule_power", "rule_power"]
+    name, code = generate_macro_rule_code(combo, 999)
+    append_rule_to_source_file(test_file, code, name)
+    ok = verify_generated_code(name, test_file)
+    print(f"测试结果: {ok}")
+    # 清理
     if os.path.exists("knowledge"):
         shutil.rmtree("knowledge")

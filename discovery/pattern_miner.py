@@ -1,141 +1,132 @@
 # discovery/pattern_miner.py
 import pickle
-from collections import defaultdict
-
-# 正式对接你真实的知识库
-try:
-    from knowledge.rules import RULE_NAMES
-except ImportError:
-    RULE_NAMES = []
-
+from collections import defaultdict, Counter
 
 def load_memory_trajectories(pkl_path):
     """
-    1. RL 经验池解析与清洗
-    读取 memory.pkl，过滤出成功拿到正奖励的完美解题轨迹。
+    加载经验池文件，提取成功轨迹，并转换为适合挖掘的格式。
+    期望的 pkl 文件包含字典，键为 "actions", "policy_probs", "q_values" 等。
     """
     try:
         with open(pkl_path, 'rb') as f:
-            memory = pickle.load(f)
+            data = pickle.load(f)
     except FileNotFoundError:
         print(f"Warning: 找不到经验池文件 {pkl_path}")
         return []
+    successful_trajs = []
+    if isinstance(data, dict):
+        actions_list = data.get("actions", [])
+        policy_probs_list = data.get("policy_probs", [])
+        q_values_list = data.get("q_values", [])
+        rewards = data.get("reward", [])
+        for i, acts in enumerate(actions_list):
+            if rewards[i] > 0:
+                traj = {
+                    "actions": acts,
+                    "policy_probs": policy_probs_list[i] if i < len(policy_probs_list) else [0.0]*len(acts),
+                    "q_values": q_values_list[i] if i < len(q_values_list) else [0.0]*len(acts),
+                    "reward": rewards[i]
+                }
+                successful_trajs.append(traj)
+    else:
+        # 旧格式：列表 of episodes
+        for ep in data:
+            if ep.get("reward", 0) > 0 or ep.get("success", False):
+                successful_trajs.append(ep)
+    return successful_trajs
 
-    successful_trajectories = []
-
-    for episode in memory:
-        # 兼容不同结构的 reward 记录方式
-        reward = episode.get('reward', 0)
-        success = episode.get('success', False)
-
-        if reward > 0 or success:
-            successful_trajectories.append(episode)
-
-    return successful_trajectories
-
+def extract_macro_by_q_delta(trajectories, q_threshold=0.7, policy_threshold=0.1, min_freq=2, top_k=3):
+    """
+    价值落差挖掘：寻找网络初始策略概率低但最终 Q 值高的连续动作序列。
+    返回列表，每个元素为 (action_id1, action_id2) 或 (rule_name1, rule_name2)
+    """
+    macro_counter = Counter()
+    for ep in trajectories:
+        actions = ep.get('actions', [])
+        policy_probs = ep.get('policy_probs', [])
+        q_vals = ep.get('q_values', [])
+        if len(actions) < 2 or len(policy_probs) != len(actions) or len(q_vals) != len(actions):
+            continue
+        # 转换可能为字符串的 action 为 id（如果需要）
+        action_ids = []
+        for a in actions:
+            if isinstance(a, str):
+                # 尝试从全局规则名映射 id（需要外部传入，这里先保留字符串）
+                action_ids.append(a)
+            else:
+                action_ids.append(a)
+        for i in range(len(action_ids)-1):
+            # 检查第一个动作的策略概率低，且第二个动作后的 Q 值高
+            if policy_probs[i] < policy_threshold and q_vals[i+1] > q_threshold:
+                macro = (action_ids[i], action_ids[i+1])
+                macro_counter[macro] += 1
+    # 过滤低频
+    filtered = {macro: cnt for macro, cnt in macro_counter.items() if cnt >= min_freq}
+    sorted_macros = sorted(filtered.items(), key=lambda x: x[1], reverse=True)
+    return [macro for macro, _ in sorted_macros[:top_k]]
 
 def extract_macro_actions(trajectories, n_gram=2, top_k=5, min_freq=2):
     """
-    2. 高频 N-gram 组合提取 (加固版)
-    统计成功路径中的连续动作序列，结合复杂度收益和最小出现频次进行双重筛选。
+    传统的 N-gram 高频挖掘（保留作为备用）
     """
     macro_scores = defaultdict(float)
     macro_counts = defaultdict(int)
-
-    for episode in trajectories:
-        raw_actions = episode.get('actions', [])
-
-        # ✅ 适配点 1：向下兼容。MCTS 如果存的是 Action 对象，自动提取其物理 id
+    for ep in trajectories:
+        raw_actions = ep.get('actions', [])
         actions = [a.id if hasattr(a, 'id') else a for a in raw_actions]
-
-        complexities = episode.get('complexities', [])
-
-        # 确保数据长度合法（由于 MCTS 的特殊性，允许 complexities 缺失，退化为仅统计频次）
+        complexities = ep.get('complexities', [])
         has_complexities = (len(complexities) >= len(actions) + 1)
-
         if len(actions) < n_gram:
             continue
-
-        # 滑动窗口提取 N-gram
         for i in range(len(actions) - n_gram + 1):
-            macro = tuple(actions[i: i + n_gram])
-
-            # 默认每次有效推进的基础得分为 1
+            macro = tuple(actions[i:i+n_gram])
             reduction = 1.0
-
             if has_complexities:
                 c_before = complexities[i]
-                c_after = complexities[i + n_gram]
-                # 计算复杂度缩减量（节点数减少的幅度）
+                c_after = complexities[i+n_gram]
                 actual_reduction = c_before - c_after
                 if actual_reduction > 0:
                     reduction = actual_reduction
                 else:
-                    # 如果节点数没有减少，视为无效绕路，跳过该组合
                     continue
-
             macro_scores[macro] += reduction
             macro_counts[macro] += 1
-
-    # ✅ 适配点 2：统计学置信度防御。过滤掉偶然出现（低于 min_freq）的特例组合
-    valid_macros = {
-        macro: score
-        for macro, score in macro_scores.items()
-        if macro_counts[macro] >= min_freq
-    }
-
-    # 按照综合得分（收益总和）从高到低排序
+    valid_macros = {macro: score for macro, score in macro_scores.items() if macro_counts[macro] >= min_freq}
     sorted_macros = sorted(valid_macros.items(), key=lambda x: x[1], reverse=True)
-
-    # 提取排名前 top_k 的宏动作 ID 组合
     return [macro for macro, score in sorted_macros[:top_k]]
 
-
-def map_ids_to_rule_names(macro_actions, rule_names_mapping=None):
+def map_ids_to_rule_names(macros, rule_names_mapping):
     """
-    3. 动作 ID 到规则文本的翻译
-    将连续的物理 ID 翻译回人类可读的字符串规则名，直供 Generator 生成代码。
+    将动作 ID 序列映射为规则名字符串序列。
+    rule_names_mapping: 可以是 list (索引->名称) 或 dict (id->名称)
     """
-    if rule_names_mapping is None:
-        rule_names_mapping = RULE_NAMES
-
     readable_macros = []
-
-    for macro in macro_actions:
-        try:
-            rule_names = [rule_names_mapping[action_id] for action_id in macro]
-            readable_macros.append(rule_names)
-        except IndexError as e:
-            print(f"Warning: 动作 ID {macro} 越界。错误: {e}")
-            continue
-
+    for macro in macros:
+        if isinstance(macro[0], int):
+            if isinstance(rule_names_mapping, list):
+                mapped = [rule_names_mapping[i] for i in macro]
+            else:
+                mapped = [rule_names_mapping.get(i, str(i)) for i in macro]
+        else:
+            # 已经是名字
+            mapped = macro
+        readable_macros.append(mapped)
     return readable_macros
 
-
-# ==========================================
-# 独立测试入口
-# ==========================================
+# 独立测试
 if __name__ == "__main__":
-    # 使用模拟数据进行脱机测试
-    mock_memory_data = [
-        {'actions': [2, 5, 4], 'complexities': [20, 18, 10, 5], 'reward': 1.0},
-        {'actions': [1, 2, 5], 'complexities': [15, 15, 12, 6], 'reward': 1.0},
-        # 新增一条轨迹，满足 min_freq = 2 的阈值要求
-        {'actions': [2, 5, 1], 'complexities': [30, 28, 15, 12], 'reward': 1.0},
-        {'actions': [1, 1, 1], 'complexities': [10, 10, 10, 10], 'reward': -0.1},
-    ]
-
-    with open('dummy_memory.pkl', 'wb') as f:
-        pickle.dump(mock_memory_data, f)
-
-    successful_trajs = load_memory_trajectories('dummy_memory.pkl')
-    print("1. 过滤出的成功轨迹数:", len(successful_trajs))
-
-    # 开启 min_freq=2，保证挖出来的套路有足够的普适性
-    top_macros_ids = extract_macro_actions(successful_trajs, n_gram=2, top_k=2, min_freq=2)
-    print("2. 挖掘出的高分宏动作 ID 组合:", top_macros_ids)
-
-    # 如果有真实规则，可以用真实规则测试，否则使用 Mock
-    mock_names = ["Identity", "Commutative", "TrigProductToSum", "IntegrationByParts", "PowerRule", "ExtractConstant"]
-    final_output = map_ids_to_rule_names(top_macros_ids, rule_names_mapping=mock_names)
-    print("3. 输出给 Generator 的最终规则文本对:", final_output)
+    # 模拟数据
+    mock_data = {
+        "actions": [[2, 5, 4], [1, 2, 5], [2, 5, 1]],
+        "policy_probs": [[0.05, 0.8, 0.1], [0.02, 0.7, 0.2], [0.03, 0.6, 0.3]],
+        "q_values": [[0.1, 0.8, 0.9], [0.2, 0.7, 0.95], [0.1, 0.75, 0.88]],
+        "reward": [1.0, 1.0, 1.0]
+    }
+    with open("dummy_miner.pkl", "wb") as f:
+        pickle.dump(mock_data, f)
+    trajs = load_memory_trajectories("dummy_miner.pkl")
+    macros = extract_macro_by_q_delta(trajs, top_k=2, min_freq=2)
+    print("价值落差挖掘结果:", macros)
+    mock_names = ["Identity", "PowerRule", "TrigProduct", "IntegrationByParts", "ExtractConstant", "LinearSub"]
+    readable = map_ids_to_rule_names(macros, mock_names)
+    print("可读规则组合:", readable)

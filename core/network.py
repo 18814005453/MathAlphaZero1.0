@@ -104,18 +104,17 @@ class MathNet(nn.Module):
         encoded = self.rule_transformer_encoder(emb, src_key_padding_mask=mask)
         return self.pool(encoded, mask)
 
-    def refresh_rule_cache(self, rule_texts: List[str], tokenizer_fn: Callable, action_ids: Optional[List[int]] = None) -> Dict[int, int]:
+    def refresh_rule_cache(self, rule_texts: List[str], tokenizer_fn: Callable, action_ids: Optional[List[int]] = None):
         device = next(self.parameters()).device
         if not rule_texts:
             self._rule_embeddings = torch.empty(0, self.d_model, device=device)
             self.id_to_idx, self.idx_to_id = {}, {}
             return {}
-
+        # 如果没有传入 action_ids，则使用连续整数（兼容旧逻辑）
         if action_ids is None:
             action_ids = list(range(len(rule_texts)))
         elif len(action_ids) != len(rule_texts):
-            raise ValueError("action_ids 长度必须与规则文本数量一致")
-
+            raise ValueError("action_ids length mismatch")
         self.id_to_idx = {int(act_id): idx for idx, act_id in enumerate(action_ids)}
         self.idx_to_id = {idx: int(act_id) for idx, act_id in enumerate(action_ids)}
 
