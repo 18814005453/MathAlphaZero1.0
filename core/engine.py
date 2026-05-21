@@ -1,27 +1,20 @@
-# core/engine.py
 """
-AlphaZero MCTS 引擎 - 符号积分（最终稳定版）
-修复：
-- 反向传播折现错误（价值崩塌）
-- 渐进扩宽误杀正确路径（死树问题）
-- 双重温度指数放大
-- 噪声注入后排序失步
-- 对接 MathNet 的全局动作空间映射（修复训练对齐 Bug）
-- 循环检测历史传递修复
-- get_trajectory 完整实现
+AlphaZero MCTS 引擎 - 生产加固版（解决对齐、崩溃、性能、训练兼容性问题）
 """
-import math
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, field
 
+import math
+import time
+from typing import List, Dict, Optional, Tuple, Callable
+from dataclasses import dataclass, field
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from core.state import IntegrationState   # 正确导入外部定义的状态类
-from core.actions import Action, NUM_ACTIONS
+from core.state import IntegrationState
+from core.actions import Action
 from core.env import IntegrationEnv
 from core.network import MathNet
+from core.rules import RULE_NAMES  # 仅作后备，推荐使用联合接口
 from utils.preprocessor import MathPreprocessor
 
 
@@ -38,6 +31,8 @@ class Node:
     is_expanded: bool = False
     sorted_actions: List[Action] = field(default_factory=list)
     sorted_probs: List[float] = field(default_factory=list)
+    # 新增：缓存合法动作对应的网络输出行索引，避免重复调用 get_rule_index
+    legal_cache_indices: List[int] = field(default_factory=list)
     num_unlocked: int = 0
     terminal: bool = False
     terminal_reward: float = 0.0
@@ -58,12 +53,15 @@ class MCTS:
             num_simulations: int = 50,
             c_puct: float = 1.0,
             gamma: float = 0.95,
+            step_penalty: float = 0.05,
             dirichlet_alpha: float = 0.3,
             dirichlet_epsilon: float = 0.25,
             progressive_widening_k: float = 5.0,
             progressive_widening_alpha: float = 0.5,
             max_depth: int = 30,
-            device: str = 'cpu'  # 这里确保默认是 'cpu'
+            device: str = 'cpu',
+            timeout: Optional[float] = None,
+            strict_rule_mapping: bool = True  # 新增：是否严格检查规则映射（开发True，生产False）
     ):
         self.network = network
         self.preprocessor = preprocessor
@@ -71,17 +69,29 @@ class MCTS:
         self.num_simulations = num_simulations
         self.c_puct = c_puct
         self.gamma = gamma
+        self.step_penalty = step_penalty
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
         self.pw_k = progressive_widening_k
         self.pw_alpha = progressive_widening_alpha
         self.max_depth = max_depth
         self.device = device
+        self.timeout = timeout
+        self.strict_rule_mapping = strict_rule_mapping
         self.root = None
+
+        # 预先获取规则映射函数（优化高频调用）
+        self._get_rule_index = network.get_rule_index
+        if not strict_rule_mapping and hasattr(network, '_fast_get_rule_index'):
+            self._get_rule_index = network._fast_get_rule_index
+
+        # 可选：验证缓存已刷新
+        if strict_rule_mapping:
+            assert hasattr(network, 'get_rule_embeddings'), "网络缺少 get_rule_embeddings"
+            assert network.get_rule_embeddings() is not None, "规则缓存未刷新，请先调用 network.refresh_rule_cache"
 
     # ---------- 辅助方法：创建带有历史记录的新状态 ----------
     def _create_next_state(self, parent_state: IntegrationState, next_expr) -> IntegrationState:
-        """根据父状态和下一步表达式生成新状态，并更新历史哈希"""
         new_history = parent_state.history_hashes.copy()
         new_history.add(parent_state.canonical_hash())
         return IntegrationState(
@@ -92,7 +102,9 @@ class MCTS:
 
     # ------------------------------------------------------------
     def _expand_node(self, node: Node, add_dirichlet: bool = False):
-        """获取所有合法动作及网络先验，全局排序，可选添加 Dirichlet 噪声"""
+        """
+        扩展节点：获取合法动作、网络先验，并一次性构建索引映射缓存。
+        """
         if node.is_expanded:
             return
 
@@ -108,34 +120,30 @@ class MCTS:
             node.is_expanded = True
             return
 
-            # 1. 传入真实的表达式 .expr
-            s# 1. 提取原始表达式张量
+        # ---- 1. 预处理状态 ----
         raw_tensor = self.preprocessor.state_to_tensor(node.state.expr)
-
-        # 2. 维度防御：严格规范化为 2D 张量 [batch_size, seq_len]
         if raw_tensor.dim() == 1:
-            # 如果是 1D [seq_len]，加上 batch 维度
             state_tensor = raw_tensor.unsqueeze(0).to(self.device)
         elif raw_tensor.dim() == 3:
-            # 如果不小心套多了变成 3D [1, 1, seq_len]，剥掉一层
             state_tensor = raw_tensor.squeeze(0).to(self.device)
         else:
-            # 如果已经是 2D，直接转移到设备
             state_tensor = raw_tensor.to(self.device)
 
-        # 3. 执行神经网络推理
+        # ---- 2. 网络前向（不传 current_num_actions）----
         with torch.no_grad():
             policy_logits, value = self.network(state_tensor)
-            # 输出如果是 [1, num_actions]，去掉 batch 维适配后续计算
             if policy_logits.dim() > 1:
                 policy_logits = policy_logits.squeeze(0)
 
         node.value = value.item()
 
-        legal_ids = [act.id for act in legal_acts]
-        legal_logits = policy_logits[legal_ids]
+        # ---- 3. 【性能优化】一次性将合法动作转换为网络行索引并缓存到 node ----
+        # 避免在后续渐进扩宽中重复调用 get_rule_index
+        node.legal_cache_indices = [self._get_rule_index(act.id) for act in legal_acts]
+        legal_logits = policy_logits[node.legal_cache_indices]
         probs = F.softmax(legal_logits, dim=0).cpu().numpy().astype(np.float32)
 
+        # ---- 4. 排序 & Dirichlet 噪声 ----
         pairs = list(zip(legal_acts, probs))
         pairs.sort(key=lambda x: x[1], reverse=True)
         node.sorted_actions = [p[0] for p in pairs]
@@ -147,6 +155,7 @@ class MCTS:
             node.sorted_probs = (1 - self.dirichlet_epsilon) * node.sorted_probs + self.dirichlet_epsilon * noise
             node.sorted_probs = node.sorted_probs / node.sorted_probs.sum()
 
+            # 重新排序（噪声可能改变顺序）
             combined = list(zip(node.sorted_actions, node.sorted_probs))
             combined.sort(key=lambda x: x[1], reverse=True)
             node.sorted_actions, node.sorted_probs = zip(*combined)
@@ -159,8 +168,7 @@ class MCTS:
     # ------------------------------------------------------------
     def _progressive_expand(self, node: Node) -> bool:
         """
-        渐进扩宽：按先验排序顺序解锁子节点，直到达到 k 个有效子节点或动作耗尽。
-        返回是否至少创建了一个新子节点。
+        渐进扩宽：使用 node 中已缓存的排序动作列表和概率。
         """
         if not node.is_expanded:
             self._expand_node(node)
@@ -184,13 +192,10 @@ class MCTS:
             act = node.sorted_actions[idx]
             prob = node.sorted_probs[idx]
 
-            # 环境步进，获得原始 next_state（历史未更新）
             next_state_raw, reward, done, info = self.env.step(node.state, act)
-
-            # 【关键修复】用正确的历史记录重新构建 next_state
             next_state = self._create_next_state(node.state, next_state_raw.expr)
 
-            # 循环检测：如果新状态哈希已存在于父状态的历史中，跳过此动作
+            # 循环检测
             if next_state.canonical_hash() in node.state.history_hashes:
                 node.num_unlocked += 1
                 continue
@@ -216,7 +221,6 @@ class MCTS:
 
     # ------------------------------------------------------------
     def _select(self, node: Node) -> Tuple[Node, List[Tuple[Node, Action]]]:
-        """返回叶子节点及路径（不含叶子自身）"""
         path = []
         for _ in range(1000):
             if node.children:
@@ -224,13 +228,16 @@ class MCTS:
                 best_act = None
                 best_child = None
                 total_n = node.n
+
                 for act, child in node.children.items():
                     u = self.c_puct * child.prior_p * math.sqrt(total_n + 1e-8) / (child.n + 1e-8)
-                    score = child.q + u
+                    child_q = child.q if child.n > 0 else node.q
+                    score = child_q + u
                     if score > best_score:
                         best_score = score
                         best_act = act
                         best_child = child
+
                 path.append((node, best_act))
                 node = best_child
                 continue
@@ -240,7 +247,7 @@ class MCTS:
             if node.terminal:
                 break
 
-            has_new = self._progressive_expand(node)
+            self._progressive_expand(node)
             if node.children:
                 continue
             else:
@@ -253,7 +260,6 @@ class MCTS:
 
     # ------------------------------------------------------------
     def _simulate(self):
-        """执行一次模拟，反向传播（修复折现错误）"""
         leaf, path = self._select(self.root)
 
         if leaf.terminal:
@@ -269,7 +275,7 @@ class MCTS:
         for parent, act in reversed(path):
             child = parent.children[act]
             shaping = child.heuristic_reward
-            value_to_parent = self.gamma * accumulated + shaping
+            value_to_parent = self.gamma * accumulated + shaping - self.step_penalty
             parent.update(value_to_parent)
             accumulated = value_to_parent
 
@@ -279,7 +285,11 @@ class MCTS:
         self._expand_node(self.root, add_dirichlet=True)
         self._progressive_expand(self.root)
 
-        for _ in range(self.num_simulations):
+        start_time = time.time()
+        for sim in range(self.num_simulations):
+            if self.timeout is not None and (time.time() - start_time) > self.timeout:
+                print(f"⚠️ MCTS 搜索超时 ({self.timeout:.1f}秒)，提前终止（已完成 {sim}/{self.num_simulations} 次模拟）")
+                break
             self._simulate()
 
         return {act: child.n for act, child in self.root.children.items()}
@@ -308,50 +318,80 @@ class MCTS:
             return np.random.choice(actions, p=probs)
 
     # ------------------------------------------------------------
-    def get_trajectory(self, state: IntegrationState, temperature: float = 1.0) -> List[dict]:
-        """生成一条完整轨迹，用于训练数据收集"""
+    def get_trajectory(self, state: IntegrationState, temperature: float = 1.0,
+                       include_metadata: bool = True) -> List[dict]:
+        """
+        生成完整轨迹，解决训练时维度不匹配问题。
+
+        参数：
+            include_metadata: 是否在轨迹中保存当前规则数（用于训练时零填充）
+
+        返回的每个字典包含：
+            - state, action, value_target
+            - policy_target: 长度 = current_rule_count 的 numpy 数组
+            - rule_count: (可选) 当时的规则总数
+        """
         trajectory = []
         cur_state = state
+        total_start = time.time()
 
-        for _ in range(self.max_depth):
+        for step_idx in range(self.max_depth):
+            if self.timeout is not None and (time.time() - total_start) > self.timeout:
+                print(f"⚠️ get_trajectory 整体超时 ({self.timeout:.1f}秒)，提前结束轨迹（已走 {step_idx} 步）")
+                break
+
             action_counts = self.search(cur_state)
+
+            # 【修复2】防止空字典导致 max() 崩溃
             if not action_counts:
                 break
 
-            # 构建全局策略目标（密集向量）
-            global_policy_target = np.zeros(NUM_ACTIONS, dtype=np.float32)
+            current_temp = temperature if step_idx < 8 else 0.1
+
+            # 动态获取当前规则数 N
+            current_rule_count = self.network.get_rule_embeddings().size(0)
+            global_policy_target = np.zeros(current_rule_count, dtype=np.float32)
+
             total_n = sum(action_counts.values())
             for act, n in action_counts.items():
-                prob = (n / total_n) ** (1.0 / temperature) if temperature > 0 else 0
-                global_policy_target[act.id] = prob
+                prob = (n / total_n) ** (1.0 / current_temp) if current_temp > 0 else 0
+                target_idx = self._get_rule_index(act.id)
+                global_policy_target[target_idx] = prob
+
+            # 归一化
             if global_policy_target.sum() > 0:
                 global_policy_target /= global_policy_target.sum()
             else:
-                # 兜底：选择访问次数最多的动作
+                # 【修复2加固】此时 action_counts 非空，取最大访问动作
                 best_act = max(action_counts.items(), key=lambda x: x[1])[0]
-                global_policy_target[best_act.id] = 1.0
+                best_idx = self._get_rule_index(best_act.id)
+                global_policy_target[best_idx] = 1.0
 
-            # 采样实际执行的动作
+            # ---------- 安全采样 ----------
             actions = list(action_counts.keys())
-            counts = np.array([action_counts[a] for a in actions])
+            counts = np.array([action_counts[a] for a in actions], dtype=np.float64)
             probs = counts / counts.sum()
+            probs /= probs.sum()
+            if not np.isclose(probs.sum(), 1.0, atol=1e-8):
+                probs = np.ones_like(probs) / len(probs)
             action = np.random.choice(actions, p=probs)
 
-            # 记录当前步
-            trajectory.append({
+            # 构建轨迹条目
+            entry = {
                 "state": cur_state,
                 "policy_target": global_policy_target.copy(),
-                "value_target": self.root.q,   # 当前根节点的价值
+                "value_target": self.root.q,
                 "action": action
-            })
+            }
+            if include_metadata:
+                entry["rule_count"] = current_rule_count  # 用于训练时动态填充
+            trajectory.append(entry)
 
-            # 执行动作，进入下一个状态（同时更新历史记录）
+            # 环境步进
             next_state_raw, reward, done, info = self.env.step(cur_state, action)
             next_state = self._create_next_state(cur_state, next_state_raw.expr)
 
-            # 如果游戏结束或达到最大深度则停止
             if done or next_state.depth >= self.max_depth:
-                # 可选：添加最终价值
                 break
 
             cur_state = next_state

@@ -5,12 +5,14 @@ import torch
 import sympy as sp
 from sympy import SympifyError
 
-from core.rules import MathRuleBase
+from core.rules import RULE_NAMES          # 导入规则文本列表
+from core.actions import Action            # 动作类，用于生成 action_ids
 from core.network import MathAlphaZeroNet
 from core.engine import MCTS
 from utils.preprocessor import MathPreprocessor
 from utils.validator import MathValidator
 from core.state import IntegrationState
+from core.env import IntegrationEnv         # 用于获取所有动作
 
 
 def main():
@@ -21,35 +23,59 @@ def main():
     # 定义全局积分变量
     x = sp.Symbol('x')
 
+    # 【优化点 1】自动硬件加速检测 (支持 NVIDIA CUDA, Apple Silicon MPS, 和普通 CPU)
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"🚀 正在初始化计算引擎，当前设备: {device}")
+
     # 初始化组件
     preprocessor = MathPreprocessor(max_len=128)
-    rules = MathRuleBase()
     validator = MathValidator()
 
-    # 创建网络
+    # 1. 创建网络 - 删除了 num_actions 参数，适配双塔架构
     net = MathAlphaZeroNet(
         vocab_size=preprocessor.vocab_size,
-        num_actions=rules.num_actions,
         d_model=128,
         nhead=4,
         num_layers=3
-    )
+    ).to(device)  # 将网络搬移到加速设备
 
     # 加载预训练权重
     model_path = "data/brain.pth"
     if os.path.exists(model_path):
         try:
-            # 兼容 Mac CPU 运行
-            state_dict = torch.load(model_path, map_location=torch.device('cpu'))
-            net.load_state_dict(state_dict)
+            # 兼容多平台加载
+            state_dict = torch.load(model_path, map_location=device)
+            # 2. 非严格加载，忽略旧模型中被砍掉的 policy_head
+            net.load_state_dict(state_dict, strict=False)
             print("✨ 已成功激活 AI 大脑记忆 (data/brain.pth)\n")
         except Exception as e:
             print(f"⚠️ 加载模型失败: {e}，将使用未训练的初始网络。\n")
     else:
         print("⚠️ 未找到训练权重，AI 将采用纯粹的初始状态进行盲搜。\n")
 
-    # 设置网络为评估模式（关闭 Dropout 等，保证推理稳定性）
+    # 设置网络为评估模式（关闭 Dropout）
     net.eval()
+
+    # ========== 3. 规则缓存注入（通电激活双塔） ==========
+    try:
+        temp_env = IntegrationEnv()
+        if hasattr(temp_env, 'get_all_possible_actions'):
+            all_actions = temp_env.get_all_possible_actions()
+            action_ids = [act.id for act in all_actions]
+        else:
+            raise AttributeError
+    except AttributeError:
+        # 后备方案：如果环境还没写好 get_all_possible_actions，直接用数组下标
+        action_ids = list(range(len(RULE_NAMES)))
+
+    # 注入规则缓存（网络会在此刻生成规则的高维向量矩阵）
+    net.refresh_rule_cache(
+        rule_texts=RULE_NAMES,
+        tokenizer_fn=preprocessor.tokenize_list,   # 需确保 Preprocessor 实现了批量分词
+        action_ids=action_ids
+    )
+    print(f"✅ 规则缓存已刷新，当前可用规则数: {len(RULE_NAMES)}\n")
+    # ==============================================
 
     # 交互循环
     while True:
@@ -70,13 +96,18 @@ def main():
 
             print(f"\n🤔 正在思考: ∫ {raw_expr} dx ...")
 
-            # 🌟 核心修复：显式套上积分符号，对齐 env.py 的匹配逻辑
+            # 构建初始状态（套上积分符号）
             init_state = IntegrationState(expr=sp.Integral(raw_expr, x))
 
-            # 每次交互重新实例化 MCTS 清空树缓存，给予足够深的搜索次数
-            mcts = MCTS(network=net, preprocessor=preprocessor, num_simulations=100)
+            # 【优化点 2】每次交互重新实例化 MCTS 时，传入 device 确保张量在同一个设备流转
+            mcts = MCTS(
+                network=net,
+                preprocessor=preprocessor,
+                num_simulations=100,
+                device=device
+            )
 
-            # 执行搜索，temperature=0.0 表示在实际解题时进行极其贪婪的稳健选择
+            # 执行搜索，temperature=0.0 表示极其贪婪的稳健选择
             trajectory = mcts.get_trajectory(init_state, temperature=0.0)
 
             success = False
@@ -88,6 +119,7 @@ def main():
 
                 # 收集推理路径
                 for step in trajectory:
+                    # step["action"].name 与 RULE_NAMES 中的文本一致
                     path.append((step["state"].expr, step["action"].name))
 
                 if done and reward > 0:

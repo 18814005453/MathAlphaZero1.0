@@ -1,9 +1,8 @@
-# utils/preprocessor.py (升级版)
+# utils/preprocessor.py
 import torch
 import sympy as sp
 from typing import List, Dict, Tuple, Optional
 from sympy.core.sympify import SympifyError
-
 
 class MathPreprocessor:
     """
@@ -12,6 +11,7 @@ class MathPreprocessor:
     - 强大的规范化（交换律排序、合并常数、消除冗余）
     - 输出 padding 固定长度 (max_len)，[PAD] ID = 0
     - 提供 state_to_tensor(expr) -> torch.LongTensor of shape (1, max_len)
+    - 提供 tokenize_list(str_list) -> torch.LongTensor of shape (len(str_list), max_len)
     """
 
     def __init__(self, max_len: int = 128):
@@ -159,14 +159,19 @@ class MathPreprocessor:
         return self._tokenize_string(s)
 
     def _tokenize_string(self, s: str) -> List[str]:
-        """对字符串进行数学感知的分词"""
+        """
+        对字符串进行数学感知的分词（加固版：强制移除所有空格）
+        避免因空格导致的索引错位和负号识别问题
+        """
+        # 关键防御：彻底移除空格，避免双指针扫描错位
+        s = s.replace(" ", "")
         tokens = []
         i = 0
         n = len(s)
         while i < n:
             # 处理两位运算符
-            if i + 1 < n and s[i:i + 2] in ('**', '//', '==', '!='):
-                tokens.append(s[i:i + 2])
+            if i + 1 < n and s[i:i+2] in ('**', '//', '==', '!='):
+                tokens.append(s[i:i+2])
                 i += 2
                 continue
             # 单字符运算符/括号
@@ -177,12 +182,10 @@ class MathPreprocessor:
             # 数字（支持整数、小数、科学计数法）
             if s[i].isdigit() or s[i] == '.':
                 start = i
-                while i < n and (s[i].isdigit() or s[i] == '.' or s[i] == 'e' or s[i] == 'E' or (
-                        s[i] in '+-' and i > start and s[i - 1].lower() == 'e')):
+                while i < n and (s[i].isdigit() or s[i] == '.' or s[i] == 'e' or s[i] == 'E' or
+                                 (s[i] in '+-' and i > start and s[i-1].lower() == 'e')):
                     i += 1
                 token = s[start:i]
-                # 将数字标准化：去掉前导零等，但保留为字符串
-                # 为了方便，可以直接保留原始字符串
                 tokens.append(token)
                 continue
             # 字母开头的标识符（函数名、变量名、常数名）
@@ -202,7 +205,7 @@ class MathPreprocessor:
                         token = 'CONSTANT'
                 tokens.append(token)
                 continue
-            # 其他字符（空格等跳过）
+            # 其他不可见字符（理论上已无空格，但保留跳过逻辑）
             i += 1
         return tokens
 
@@ -225,8 +228,38 @@ class MathPreprocessor:
     def state_to_tensor(self, expr: sp.Expr) -> torch.Tensor:
         """
         与 MCTS 引擎对接的标准接口，等同于 encode
+        返回形状 (1, max_len) 的 2D 张量
         """
         return self.encode(expr)
+
+    # ------------------------------------------------------------
+    # 批量接口：直接处理字符串列表（用于双塔缓存刷新）
+    # ------------------------------------------------------------
+    def _string_to_ids(self, s: str) -> torch.Tensor:
+        """
+        将单个原始字符串直接转换为 1D 张量 (max_len,)，
+        不引入 batch 维度。专为批量 tokenize_list 设计，
+        避免 SymPy 解析纯文本公式失败（如 "PowerIntegral"）。
+        """
+        tokens = self._tokenize_string(s)
+        ids = [self.token2id.get(tok, self.unk_id) for tok in tokens]
+        # 截断或填充至 max_len
+        if len(ids) > self.max_len:
+            ids = ids[:self.max_len]
+        else:
+            ids = ids + [self.pad_id] * (self.max_len - len(ids))
+        return torch.tensor(ids, dtype=torch.long)  # [max_len]
+
+    def tokenize_list(self, string_list: List[str]) -> torch.Tensor:
+        """
+        批量处理字符串列表，返回形状 (batch_size, max_len) 的 2D 张量。
+        用于 main.py 启动时刷新双塔缓存，直接对原始公式文本进行分词编码。
+        边界防御：跳过 SymPy 标准化，避免 sp.sympify 解析失败。
+        """
+        if not string_list:
+            return torch.empty((0, self.max_len), dtype=torch.long)
+        tensor_list = [self._string_to_ids(s) for s in string_list]
+        return torch.stack(tensor_list, dim=0)  # [batch, max_len]
 
     # ------------------------------------------------------------
     # 辅助：张量 → 表达式（用于调试）
