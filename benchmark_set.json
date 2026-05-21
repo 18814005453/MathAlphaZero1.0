@@ -1,0 +1,1122 @@
+[
+  {
+    "id": 1,
+    "expression": "2*x",
+    "target_answer": "x**2",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 2,
+    "expression": "3*x**2",
+    "target_answer": "x**3",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 3,
+    "expression": "4*x**3",
+    "target_answer": "x**4",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 4,
+    "expression": "5*x**4",
+    "target_answer": "x**5",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 5,
+    "expression": "2*x + 4",
+    "target_answer": "x**2 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 6,
+    "expression": "3*x**2 + 4",
+    "target_answer": "x**3 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 7,
+    "expression": "4*x**3 + 4",
+    "target_answer": "x**4 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 8,
+    "expression": "5*x**4 + 4",
+    "target_answer": "x**5 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 9,
+    "expression": "2*x - 5",
+    "target_answer": "x**2 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 10,
+    "expression": "3*x**2 - 5",
+    "target_answer": "x**3 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 11,
+    "expression": "4*x**3 - 5",
+    "target_answer": "x**4 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 12,
+    "expression": "5*x**4 - 5",
+    "target_answer": "x**5 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 13,
+    "expression": "-4*x",
+    "target_answer": "-2*x**2",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 14,
+    "expression": "-6*x**2",
+    "target_answer": "-2*x**3",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 15,
+    "expression": "-8*x**3",
+    "target_answer": "-2*x**4",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 16,
+    "expression": "-10*x**4",
+    "target_answer": "-2*x**5",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 17,
+    "expression": "-4*x + 4",
+    "target_answer": "-2*x**2 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 18,
+    "expression": "-6*x**2 + 4",
+    "target_answer": "-2*x**3 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 19,
+    "expression": "-8*x**3 + 4",
+    "target_answer": "-2*x**4 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 20,
+    "expression": "-10*x**4 + 4",
+    "target_answer": "-2*x**5 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 21,
+    "expression": "-4*x - 5",
+    "target_answer": "-2*x**2 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 22,
+    "expression": "-6*x**2 - 5",
+    "target_answer": "-2*x**3 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 23,
+    "expression": "-8*x**3 - 5",
+    "target_answer": "-2*x**4 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 24,
+    "expression": "-10*x**4 - 5",
+    "target_answer": "-2*x**5 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 25,
+    "expression": "6*x",
+    "target_answer": "3*x**2",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 26,
+    "expression": "9*x**2",
+    "target_answer": "3*x**3",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 27,
+    "expression": "12*x**3",
+    "target_answer": "3*x**4",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 28,
+    "expression": "15*x**4",
+    "target_answer": "3*x**5",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 29,
+    "expression": "6*x + 4",
+    "target_answer": "3*x**2 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 30,
+    "expression": "9*x**2 + 4",
+    "target_answer": "3*x**3 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 31,
+    "expression": "12*x**3 + 4",
+    "target_answer": "3*x**4 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 32,
+    "expression": "15*x**4 + 4",
+    "target_answer": "3*x**5 + 4*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 33,
+    "expression": "6*x - 5",
+    "target_answer": "3*x**2 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 34,
+    "expression": "9*x**2 - 5",
+    "target_answer": "3*x**3 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 35,
+    "expression": "12*x**3 - 5",
+    "target_answer": "3*x**4 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 36,
+    "expression": "15*x**4 - 5",
+    "target_answer": "3*x**5 - 5*x",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 37,
+    "expression": "cos(x)",
+    "target_answer": "sin(x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 38,
+    "expression": "-sin(x)",
+    "target_answer": "cos(x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 39,
+    "expression": "cos(x + pi/3)",
+    "target_answer": "sin(x + pi/3)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 40,
+    "expression": "-sin(x + pi/3)",
+    "target_answer": "cos(x + pi/3)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 41,
+    "expression": "cos(x + pi/4)",
+    "target_answer": "sin(x + pi/4)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 42,
+    "expression": "-sin(x + pi/4)",
+    "target_answer": "cos(x + pi/4)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 43,
+    "expression": "2*cos(2*x)",
+    "target_answer": "sin(2*x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 44,
+    "expression": "-2*sin(2*x)",
+    "target_answer": "cos(2*x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 45,
+    "expression": "2*cos(2*x + pi/3)",
+    "target_answer": "sin(2*x + pi/3)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 46,
+    "expression": "-2*sin(2*x + pi/3)",
+    "target_answer": "cos(2*x + pi/3)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 47,
+    "expression": "2*cos(2*x + pi/4)",
+    "target_answer": "sin(2*x + pi/4)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 48,
+    "expression": "-2*sin(2*x + pi/4)",
+    "target_answer": "cos(2*x + pi/4)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 49,
+    "expression": "0.5*cos(0.5*x)",
+    "target_answer": "sin(0.5*x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 50,
+    "expression": "-0.5*sin(0.5*x)",
+    "target_answer": "cos(0.5*x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 51,
+    "expression": "0.5*cos(0.5*x + pi/3)",
+    "target_answer": "sin(0.5*x + pi/3)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 52,
+    "expression": "-0.5*sin(0.5*x + pi/3)",
+    "target_answer": "cos(0.5*x + pi/3)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 53,
+    "expression": "0.5*cos(0.5*x + pi/4)",
+    "target_answer": "sin(0.5*x + pi/4)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 54,
+    "expression": "-0.5*sin(0.5*x + pi/4)",
+    "target_answer": "cos(0.5*x + pi/4)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 55,
+    "expression": "0.5*exp(0.5*x - 1)",
+    "target_answer": "exp(0.5*x - 1)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 56,
+    "expression": "0.5*exp(0.5*x)",
+    "target_answer": "exp(0.5*x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 57,
+    "expression": "0.5*exp(0.5*x + 1)",
+    "target_answer": "exp(0.5*x + 1)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 58,
+    "expression": "exp(x - 1)",
+    "target_answer": "exp(x - 1)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 59,
+    "expression": "exp(x)",
+    "target_answer": "exp(x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 60,
+    "expression": "exp(x + 1)",
+    "target_answer": "exp(x + 1)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 61,
+    "expression": "x*cos(x) + sin(x)",
+    "target_answer": "x*sin(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 62,
+    "expression": "(x + 1)*exp(x)",
+    "target_answer": "x*exp(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 63,
+    "expression": "2*x*cos(2*x) + sin(2*x)",
+    "target_answer": "x*sin(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 64,
+    "expression": "(2*x + 1)*exp(2*x)",
+    "target_answer": "x*exp(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 65,
+    "expression": "-x*sin(x) + cos(x)",
+    "target_answer": "x*cos(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 66,
+    "expression": "(x + 1)*exp(x)",
+    "target_answer": "x*exp(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 67,
+    "expression": "-2*x*sin(2*x) + cos(2*x)",
+    "target_answer": "x*cos(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 68,
+    "expression": "(2*x + 1)*exp(2*x)",
+    "target_answer": "x*exp(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 69,
+    "expression": "x*(x*cos(x) + 2*sin(x))",
+    "target_answer": "x**2*sin(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 70,
+    "expression": "x*(x + 2)*exp(x)",
+    "target_answer": "x**2*exp(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 71,
+    "expression": "2*x*(x*cos(2*x) + sin(2*x))",
+    "target_answer": "x**2*sin(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 72,
+    "expression": "2*x*(x + 1)*exp(2*x)",
+    "target_answer": "x**2*exp(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 73,
+    "expression": "x*(-x*sin(x) + 2*cos(x))",
+    "target_answer": "x**2*cos(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 74,
+    "expression": "x*(x + 2)*exp(x)",
+    "target_answer": "x**2*exp(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 75,
+    "expression": "2*x*(-x*sin(2*x) + cos(2*x))",
+    "target_answer": "x**2*cos(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 76,
+    "expression": "2*x*(x + 1)*exp(2*x)",
+    "target_answer": "x**2*exp(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 77,
+    "expression": "x**2*(x*cos(x) + 3*sin(x))",
+    "target_answer": "x**3*sin(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 78,
+    "expression": "x**2*(x + 3)*exp(x)",
+    "target_answer": "x**3*exp(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 79,
+    "expression": "x**2*(2*x*cos(2*x) + 3*sin(2*x))",
+    "target_answer": "x**3*sin(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 80,
+    "expression": "x**2*(2*x + 3)*exp(2*x)",
+    "target_answer": "x**3*exp(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 81,
+    "expression": "x**2*(-x*sin(x) + 3*cos(x))",
+    "target_answer": "x**3*cos(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 82,
+    "expression": "x**2*(x + 3)*exp(x)",
+    "target_answer": "x**3*exp(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 83,
+    "expression": "x**2*(-2*x*sin(2*x) + 3*cos(2*x))",
+    "target_answer": "x**3*cos(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 84,
+    "expression": "x**2*(2*x + 3)*exp(2*x)",
+    "target_answer": "x**3*exp(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 85,
+    "expression": "(x + (x + 1)*log(x + 1))/(x + 1)",
+    "target_answer": "x*log(x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 86,
+    "expression": "(x + (x + 2)*log(x + 2))/(x + 2)",
+    "target_answer": "x*log(x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 87,
+    "expression": "x*(x + 2*(x + 1)*log(x + 1))/(x + 1)",
+    "target_answer": "x**2*log(x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 88,
+    "expression": "x*(x + 2*(x + 2)*log(x + 2))/(x + 2)",
+    "target_answer": "x**2*log(x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 89,
+    "expression": "x**2*(x + 3*(x + 1)*log(x + 1))/(x + 1)",
+    "target_answer": "x**3*log(x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 90,
+    "expression": "x**2*(x + 3*(x + 2)*log(x + 2))/(x + 2)",
+    "target_answer": "x**3*log(x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 91,
+    "expression": "(x - (x + 1)*log(x + 1))/(x**2*(x + 1))",
+    "target_answer": "log(x + 1)/x",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 92,
+    "expression": "(x - (x + 2)*log(x + 2))/(x**2*(x + 2))",
+    "target_answer": "log(x + 2)/x",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 93,
+    "expression": "(x - 2*(x + 1)*log(x + 1))/(x**3*(x + 1))",
+    "target_answer": "log(x + 1)/x**2",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 94,
+    "expression": "(x - 2*(x + 2)*log(x + 2))/(x**3*(x + 2))",
+    "target_answer": "log(x + 2)/x**2",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 95,
+    "expression": "(-2*x - 1)/(x**2 + x + 1)**2",
+    "target_answer": "1/(x**2 + x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 96,
+    "expression": "(-2*x - 1)/(x**2 + x + 2)**2",
+    "target_answer": "1/(x**2 + x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 97,
+    "expression": "2*(-x - 1)/(x**2 + 2*x + 1)**2",
+    "target_answer": "1/(x**2 + 2*x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 98,
+    "expression": "2*(-x - 1)/(x**2 + 2*x + 2)**2",
+    "target_answer": "1/(x**2 + 2*x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 99,
+    "expression": "(-2*x - 3)/(x**2 + 3*x + 1)**2",
+    "target_answer": "1/(x**2 + 3*x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 100,
+    "expression": "(-2*x - 3)/(x**2 + 3*x + 2)**2",
+    "target_answer": "1/(x**2 + 3*x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 101,
+    "expression": "(x + 1/2)/sqrt(x**2 + x + 1)",
+    "target_answer": "sqrt(x**2 + x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 102,
+    "expression": "(-x - 1/2)/(x**2 + x + 1)**(3/2)",
+    "target_answer": "1/sqrt(x**2 + x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 103,
+    "expression": "(x + 1/2)/sqrt(x**2 + x + 2)",
+    "target_answer": "sqrt(x**2 + x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 104,
+    "expression": "(-x - 1/2)/(x**2 + x + 2)**(3/2)",
+    "target_answer": "1/sqrt(x**2 + x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 105,
+    "expression": "(x + 1/2)/sqrt(x**2 + x + 3)",
+    "target_answer": "sqrt(x**2 + x + 3)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 106,
+    "expression": "(-x - 1/2)/(x**2 + x + 3)**(3/2)",
+    "target_answer": "1/sqrt(x**2 + x + 3)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 107,
+    "expression": "(x + 1)/sqrt(x**2 + 2*x + 1)",
+    "target_answer": "sqrt(x**2 + 2*x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 108,
+    "expression": "(-x - 1)/(x**2 + 2*x + 1)**(3/2)",
+    "target_answer": "1/sqrt(x**2 + 2*x + 1)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 109,
+    "expression": "(x + 1)/sqrt(x**2 + 2*x + 2)",
+    "target_answer": "sqrt(x**2 + 2*x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 110,
+    "expression": "(-x - 1)/(x**2 + 2*x + 2)**(3/2)",
+    "target_answer": "1/sqrt(x**2 + 2*x + 2)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 111,
+    "expression": "(x + 1)/sqrt(x**2 + 2*x + 3)",
+    "target_answer": "sqrt(x**2 + 2*x + 3)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 112,
+    "expression": "(-x - 1)/(x**2 + 2*x + 3)**(3/2)",
+    "target_answer": "1/sqrt(x**2 + 2*x + 3)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 113,
+    "expression": "sqrt(2)*exp(x)*sin(x + pi/4)",
+    "target_answer": "exp(x)*sin(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 114,
+    "expression": "sqrt(2)*exp(x)*cos(x + pi/4)",
+    "target_answer": "exp(x)*cos(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 115,
+    "expression": "2*sqrt(2)*exp(2*x)*sin(2*x + pi/4)",
+    "target_answer": "exp(2*x)*sin(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 116,
+    "expression": "2*sqrt(2)*exp(2*x)*cos(2*x + pi/4)",
+    "target_answer": "exp(2*x)*cos(2*x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 117,
+    "expression": "x * exp(x) / (x + 1)**2",
+    "target_answer": "exp(x)/(x+1)",
+    "difficulty": "hard",
+    "type": "考研经典隐含同构/分部积分"
+  },
+  {
+    "id": 118,
+    "expression": "1 / (x * sqrt(x**2 + 4*x + 5))",
+    "target_answer": "log(x) - log(x+2+sqrt(x**2+4*x+5))",
+    "difficulty": "hard",
+    "type": "二次无理根式/倒数代换"
+  },
+  {
+    "id": 119,
+    "expression": "log(1 + x) / (1 + x**2)",
+    "target_answer": "Integral(log(x+1)/(x**2+1), x)",
+    "difficulty": "hard",
+    "type": "区间再现对称性奇迹（定积分专用，不定积分用特殊函数）"
+  },
+  {
+    "id": 120,
+    "expression": "1 / (1 + x**4)",
+    "target_answer": "sqrt(2)/8*log((x**2+sqrt(2)*x+1)/(x**2-sqrt(2)*x+1)) + sqrt(2)/4*atan(sqrt(2)*x/(1-x**2))",
+    "difficulty": "hard",
+    "type": "竞赛级有理式强行凑配方"
+  },
+  {
+    "id": 121,
+    "expression": "exp(x) * (1 + sin(x)) / (1 + cos(x))",
+    "target_answer": "exp(x) * tan(x/2)",
+    "difficulty": "hard",
+    "type": "三角半角换元与指数复合"
+  },
+  {
+    "id": 122,
+    "expression": "(x**2+1)/(x**4+1)",
+    "target_answer": "sqrt(2)/4*atan((x**2-1)/(sqrt(2)*x))",
+    "difficulty": "hard",
+    "type": "四次分母对称分式"
+  },
+  {
+    "id": 123,
+    "expression": "1/(x**4+2*x**2+1)",
+    "target_answer": "x/(2*(x**2+1)) + atan(x)/2",
+    "difficulty": "hard",
+    "type": "重根有理函数"
+  },
+  {
+    "id": 124,
+    "expression": "sqrt(1+sqrt(x))",
+    "target_answer": "4/15*(3*sqrt(x)-2)*(sqrt(x)+1)**(3/2)",
+    "difficulty": "hard",
+    "type": "多重根式代换"
+  },
+  {
+    "id": 125,
+    "expression": "x*log(x)/(x**2-1)",
+    "target_answer": "polylog(2, x)/2",
+    "difficulty": "hard",
+    "type": "涉及多重对数"
+  },
+  {
+    "id": 126,
+    "expression": "exp(2*x)*cos(3*x)",
+    "target_answer": "exp(2*x)*(2*cos(3*x)+3*sin(3*x))/13",
+    "difficulty": "hard",
+    "type": "指数×三角标准分部"
+  },
+  {
+    "id": 127,
+    "expression": "x**2 * sqrt(1-x**2)",
+    "target_answer": "x*sqrt(1-x**2)*(1-2*x**2)/8 + asin(x)/8",
+    "difficulty": "hard",
+    "type": "三角代换"
+  },
+  {
+    "id": 128,
+    "expression": "1/(x*sqrt(1+x**2))",
+    "target_answer": "-log((1+sqrt(1+x**2))/abs(x))",
+    "difficulty": "hard",
+    "type": "倒代换"
+  },
+  {
+    "id": 129,
+    "expression": "x**3 / sqrt(x**2+1)",
+    "target_answer": "(x**2-2)*sqrt(x**2+1)/3",
+    "difficulty": "hard",
+    "type": "双曲代换"
+  },
+  {
+    "id": 130,
+    "expression": "atan(x)/x**2",
+    "target_answer": "-atan(x)/x + log(x) - log(x**2+1)/2",
+    "difficulty": "hard",
+    "type": "分部积分+有理式"
+  },
+  {
+    "id": 131,
+    "expression": "sin(log(x))",
+    "target_answer": "x*(sin(log(x)) - cos(log(x)))/2",
+    "difficulty": "hard",
+    "type": "指数代换"
+  },
+  {
+    "id": 132,
+    "expression": "cos(log(x))/x",
+    "target_answer": "sin(log(x))",
+    "difficulty": "hard",
+    "type": "简单凑微分（但容易误判）"
+  },
+  {
+    "id": 133,
+    "expression": "x**5 * exp(x**3)",
+    "target_answer": "exp(x**3)*(x**3-1)/3",
+    "difficulty": "hard",
+    "type": "换元u=x^3"
+  },
+  {
+    "id": 134,
+    "expression": "1/(x*(x**100+1))",
+    "target_answer": "log(x) - log(x**100+1)/100",
+    "difficulty": "hard",
+    "type": "长分式拆分"
+  },
+  {
+    "id": 135,
+    "expression": "x**2 * atan(x)",
+    "target_answer": "(x**3*atan(x) + x**2 - log(x**2+1))/6",
+    "difficulty": "hard",
+    "type": "分部+多项式"
+  },
+  {
+    "id": 136,
+    "expression": "(x**2+1)*exp(x)/(x+1)**2",
+    "target_answer": "exp(x)*(x-1)/(x+1)",
+    "difficulty": "hard",
+    "type": "同构构造"
+  },
+  {
+    "id": 137,
+    "expression": "1/(x**6+1)",
+    "target_answer": "复杂有理分式（多项反正切和反双曲）",
+    "difficulty": "hard",
+    "type": "高次分母经典"
+  },
+  {
+    "id": 138,
+    "expression": "sqrt(tan(x))",
+    "target_answer": "sqrt(2)/4*log((tan(x)+sqrt(2*tan(x))+1)/(tan(x)-sqrt(2*tan(x))+1)) + sqrt(2)/2*atan(sqrt(2*tan(x))/(1-tan(x)))",
+    "difficulty": "hard",
+    "type": "万能代换+对称性"
+  },
+  {
+    "id": 139,
+    "expression": "1/(sin(x)+cos(x))",
+    "target_answer": "sqrt(2)/2 * atanh((sin(x)-cos(x))/sqrt(2))",
+    "difficulty": "hard",
+    "type": "辅助角公式"
+  },
+  {
+    "id": 140,
+    "expression": "x*exp(x)*sin(x)",
+    "target_answer": "exp(x)*(x*sin(x) - x*cos(x) + cos(x))/2",
+    "difficulty": "hard",
+    "type": "分部循环"
+  },
+  {
+    "id": 141,
+    "expression": "x**2 * sin(x) * cos(x)",
+    "target_answer": "x**2*sin(2*x)/4 + x*cos(2*x)/4 - sin(2*x)/8",
+    "difficulty": "hard",
+    "type": "降幂+分部"
+  },
+  {
+    "id": 142,
+    "expression": "exp(sqrt(x))",
+    "target_answer": "2*exp(sqrt(x))*(sqrt(x)-1)",
+    "difficulty": "hard",
+    "type": "换元t=sqrt(x)"
+  },
+  {
+    "id": 143,
+    "expression": "log(x + sqrt(x**2+1))",
+    "target_answer": "x*asinh(x) - sqrt(x**2+1)",
+    "difficulty": "hard",
+    "type": "反双曲积分"
+  },
+  {
+    "id": 144,
+    "expression": "1/(x*sqrt(x**2-1))",
+    "target_answer": "asec(abs(x))",
+    "difficulty": "hard",
+    "type": "反三角导数直接逆用"
+  },
+  {
+    "id": 145,
+    "expression": "cos(ln(x))",
+    "target_answer": "x*(cos(ln(x)) + sin(ln(x)))/2",
+    "difficulty": "hard",
+    "type": "与sin(log x)同类"
+  },
+  {
+    "id": 146,
+    "expression": "x**3 * exp(x**2)",
+    "target_answer": "exp(x**2)*(x**2-1)/2",
+    "difficulty": "hard",
+    "type": "换元u=x^2"
+  },
+  {
+    "id": 147,
+    "expression": "arcsin(x)/x**2",
+    "target_answer": "-arcsin(x)/x + log((1-sqrt(1-x**2))/x)",
+    "difficulty": "hard",
+    "type": "分部+代数变形"
+  },
+  {
+    "id": 148,
+    "expression": "1/(1+sin(x)+cos(x))",
+    "target_answer": "log(tan(x/2)+1) - log(tan(x/2))",
+    "difficulty": "hard",
+    "type": "万能代换"
+  },
+  {
+    "id": 149,
+    "expression": "x / (1+cos(x))",
+    "target_answer": "x*tan(x/2) - 2*log(cos(x/2))",
+    "difficulty": "hard",
+    "type": "分部+半角"
+  },
+  {
+    "id": 150,
+    "expression": "e^(2x) * sin(e^x)",
+    "target_answer": "-cos(e^x)*e^x + sin(e^x)",
+    "difficulty": "hard",
+    "type": "换元u=e^x, 分部"
+  },
+  {
+    "id": 151,
+    "expression": "1/(x**2+2*x+2)**2",
+    "target_answer": "atan(x+1)/2 + (x+1)/(2*(x**2+2*x+2))",
+    "difficulty": "hard",
+    "type": "递推降次"
+  },
+  {
+    "id": 152,
+    "expression": "x*atan(x)/(1+x**2)",
+    "target_answer": "atan(x)**2/2",
+    "difficulty": "hard",
+    "type": "巧凑微分"
+  },
+  {
+    "id": 153,
+    "expression": "log(1+x)/(1+x)",
+    "target_answer": "log(1+x)**2/2",
+    "difficulty": "hard",
+    "type": "基本凑微分"
+  },
+  {
+    "id": 154,
+    "expression": "sin(x)/sqrt(1+sin(2*x))",
+    "target_answer": "复杂分段，涉及符号",
+    "difficulty": "hard",
+    "type": "考研陷井题"
+  },
+  {
+    "id": 155,
+    "expression": "(1-x)/(1+x)*1/sqrt(1-x**2)",
+    "target_answer": "asin(x) + sqrt(1-x**2)",
+    "difficulty": "hard",
+    "type": "三角代换变形"
+  },
+  {
+    "id": 156,
+    "expression": "x*log(x**2+1)",
+    "target_answer": "(x**2+1)*log(x**2+1)/2 - x**2/2",
+    "difficulty": "hard",
+    "type": "分部+换元"
+  },
+  {
+    "id": 157,
+    "expression": "1/x",
+    "target_answer": "log(x)",
+    "difficulty": "easy",
+    "type": "基础初等函数与常规代换"
+  },
+  {
+    "id": 158,
+    "expression": "x*cos(x)",
+    "target_answer": "x*sin(x) + cos(x)",
+    "difficulty": "medium",
+    "type": "标准分部积分与凑微分"
+  },
+  {
+    "id": 159,
+    "expression": "sqrt(1 + x**2)",
+    "target_answer": "(x/2)*sqrt(1 + x**2) + (1/2)*log(x + sqrt(1 + x**2))",
+    "difficulty": "hard",
+    "type": "三角/双曲代换"
+  },
+  {
+    "id": 160,
+    "expression": "1/(x**2 + 1)**2",
+    "target_answer": "(x)/(2*(x**2+1)) + atan(x)/2",
+    "difficulty": "hard",
+    "type": "有理函数递推"
+  }
+]
