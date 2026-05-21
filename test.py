@@ -1,5 +1,5 @@
 # test_simple.py
-from core.rules import RULE_DICT
+from knowledge.rules import RULE_DICT
 from sympy import Integral
 from sympy.abc import x
 

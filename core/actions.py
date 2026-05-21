@@ -1,20 +1,16 @@
+# core/actions.py
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Action:
+    """
+    AlphaZero 符号积分动作空间实例。
+    使用 frozen=True 自动生成完美的 __hash__ 和 __eq__，
+    满足 MCTS 树搜索节点在 Dict/Set 中 O(1) 复杂度的查重和映射。
+    """
     id: int
     name: str
 
     def __repr__(self):
-        return f"Action({self.name})"
-
-# 这里定义了你的动作空间，必须与你在 network 中设置的 num_actions 一致
-# 假设你有 20 条规则，我们就定义 20 个 Action
-from core.rules import RULE_NAMES
-
-# 将规则名映射为 Action 对象
-ACTIONS = [Action(i, name) for i, name in enumerate(RULE_NAMES)]
-NUM_ACTIONS = len(ACTIONS)
-
-def get_action_by_id(action_id):
-    return ACTIONS[action_id]
+        # 优化打印格式，让主程序打印“步骤X: ← 应用规则: PowerRule”时更干净
+        return f"{self.name}"

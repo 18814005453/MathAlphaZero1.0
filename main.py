@@ -1,12 +1,10 @@
 # main.py
 import os
-import sys
 import torch
 import sympy as sp
 from sympy import SympifyError
 
-from core.rules import RULE_NAMES          # 导入规则文本列表
-from core.actions import Action            # 动作类，用于生成 action_ids
+from knowledge.rules import RULE_NAMES          # 导入规则文本列表
 from core.network import MathAlphaZeroNet
 from core.engine import MCTS
 from utils.preprocessor import MathPreprocessor

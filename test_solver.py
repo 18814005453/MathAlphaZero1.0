@@ -3,8 +3,7 @@
 
 import sys
 import os
-import sympy
-from sympy import Integral, sympify, Symbol
+from sympy import Integral, Symbol
 
 # 添加当前目录到路径
 sys.path.insert(0, os.getcwd())
@@ -13,7 +12,7 @@ x = Symbol('x')
 
 # 检查核心模块是否可以导入
 try:
-    from core.rules import RULE_NAMES, RULE_DICT
+    from knowledge.rules import RULE_NAMES, RULE_DICT
     print("✓ core.rules 导入成功")
     print(f"  找到 {len(RULE_NAMES)} 条规则: {RULE_NAMES}")
 except Exception as e:
@@ -50,7 +49,7 @@ test_expr = Integral(x, x)
 print(f"输入: {test_expr}")
 
 # 尝试使用规则直接求解
-from core.rules import rule_power_integral
+from knowledge.rules import rule_power_integral
 result = rule_power_integral(test_expr)
 print(f"直接应用 PowerIntegral 规则: {result}")
 

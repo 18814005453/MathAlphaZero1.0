@@ -17,7 +17,7 @@ from sympy import parse_expr, diff, simplify
 # =====================================================================
 # 🔗 完美绑定你的核心架构组件
 # =====================================================================
-from core.rules import MathRuleBase
+from knowledge.rules import MathRuleBase
 from core.network import MathAlphaZeroNet
 from core.engine import MCTS
 from utils.preprocessor import MathPreprocessor

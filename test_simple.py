@@ -1,12 +1,12 @@
 import sys
 import os
-from sympy import Integral, sin, cos, exp, log, sqrt, tan, cot, sec, csc, sinh, cosh, asin, atan
+from sympy import sin, exp, sqrt, tan, cot, sec, csc, sinh, cosh
 
 # 确保路径正确
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-from core.rules import RULE_DICT
+from knowledge.rules import RULE_DICT
 from sympy.abc import x, a
 
 
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     run_24_table_test()
 
 from sympy import Integral, cos, Symbol
-from core.rules import rule_split_addition, rule_extract_constant
+from knowledge.rules import rule_split_addition, rule_extract_constant
 
 x = Symbol('x')
 
