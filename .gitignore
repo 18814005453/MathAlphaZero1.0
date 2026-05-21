@@ -1,0 +1,14 @@
+# 忽略 Python 虚拟环境
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# 忽略本地训练的大型权重和经验池文件
+data/brain.pth
+data/memory.pkl
+data/fast_cache.pkl
+data/solved_history.pkl
+
+# 忽略 Mac 系统自带的隐藏文件
+.DS_Store
