@@ -684,38 +684,56 @@ def rule_simplify(integral):
     return None
 
 # ---------- 显式注册规则 ----------
+
+RULE_NAMES = [
+    'rule_extract_constant',
+    'rule_split_addition',
+    'rule_linear_composition',
+    'rule_power_integral',
+    'rule_rational_power',
+    'rule_trig_integral',
+    'rule_trig_power_reduction',
+    'rule_trig_product_to_sum',
+    'rule_exp_integral',
+    'rule_log_integral',
+    'rule_exp_trig_product',
+    'rule_inv_trig_integral',
+    'rule_rational_function',
+    'rule_rational_improper',
+    'rule_sqrt_quadratic',
+    'rule_integration_by_parts',
+    'rule_trig_substitution',
+    'rule_hyperbolic_integral',
+    'rule_reduction_formula',
+    'rule_simplify',
+]
+
 RULE_DICT = {
-    "ExtractConstant": rule_extract_constant,
-    "SplitAddition": rule_split_addition,
-    "LinearComposition": rule_linear_composition,
-    "PowerIntegral": rule_power_integral,
-    "RationalPower": rule_rational_power,
-    "TrigIntegral": rule_trig_integral,
-    "TrigPowerReduction": rule_trig_power_reduction,
-    "TrigProductToSum": rule_trig_product_to_sum,
-    "ExpIntegral": rule_exp_integral,
-    "LogIntegral": rule_log_integral,
-    "ExpTrigProduct": rule_exp_trig_product,
-    "InvTrigIntegral": rule_inv_trig_integral,
-    "RationalFunction": rule_rational_function,
-    "RationalImproper": rule_rational_improper,
-    "SqrtQuadratic": rule_sqrt_quadratic,
-    "IntegrationByParts": rule_integration_by_parts,
-    "TrigSubstitution": rule_trig_substitution,
-    "HyperbolicIntegral": rule_hyperbolic_integral,
-    "ReductionFormula": rule_reduction_formula,
-    "Simplify": rule_simplify,
+    'rule_extract_constant': rule_extract_constant,
+    'rule_split_addition': rule_split_addition,
+    'rule_linear_composition': rule_linear_composition,
+    'rule_power_integral': rule_power_integral,
+    'rule_rational_power': rule_rational_power,
+    'rule_trig_integral': rule_trig_integral,
+    'rule_trig_power_reduction': rule_trig_power_reduction,
+    'rule_trig_product_to_sum': rule_trig_product_to_sum,
+    'rule_exp_integral': rule_exp_integral,
+    'rule_log_integral': rule_log_integral,
+    'rule_exp_trig_product': rule_exp_trig_product,
+    'rule_inv_trig_integral': rule_inv_trig_integral,
+    'rule_rational_function': rule_rational_function,
+    'rule_rational_improper': rule_rational_improper,
+    'rule_sqrt_quadratic': rule_sqrt_quadratic,
+    'rule_integration_by_parts': rule_integration_by_parts,
+    'rule_trig_substitution': rule_trig_substitution,
+    'rule_hyperbolic_integral': rule_hyperbolic_integral,
+    'rule_reduction_formula': rule_reduction_formula,
+    'rule_simplify': rule_simplify,
 }
 
-RULE_NAMES = list(RULE_DICT.keys())
-
-# ---------- 显式注册规则 ----------
-# (保持你原有的 RULE_DICT 和 RULE_NAMES 不变)
-# ...
 
 class MathRuleBase:
-    """提供给网络和训练脚本的接口"""
     def __init__(self):
-        # 延迟导入以避免与 actions.py 产生循环依赖
-
+        self.rules = RULE_DICT
+        self.rule_names = RULE_NAMES
         self.num_actions = len(RULE_NAMES)

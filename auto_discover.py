@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 
 # 假设你的项目模块结构如下：
-# import pattern_miner
-# import generator
+import discovery.pattern_miner as pattern_miner
+import discovery.generator as generator
 # import knowledge.rules
 # from network import DualTowerActorCritic
 
@@ -34,9 +34,22 @@ def run_evolution_loop(net, preprocessor, memory_path="data/memory.pkl", trigger
         print("\n" + "=" * 50)
         print("🛑 [Control Loop] 触发进化周期！系统控制权移交至进化管线...")
 
-        # 2. 管线联动 - 第一步：挖掘
-        trajectories = pattern_miner.load_memory_trajectories(memory_path)
+        # 2. 管线联动 - 第一步：挖掘与数据适配重构
+        import pickle
+        trajectories = []
+        if os.path.exists(memory_path):
+            try:
+                with open(memory_path, 'rb') as f_miner_data:
+                    raw_miner_dict = pickle.load(f_miner_data)
+                if isinstance(raw_miner_dict, dict) and "actions" in raw_miner_dict:
+                    # 将并行的 actions/reward 列表重新拼装为 Episode 字典字典列表
+                    for acts, r in zip(raw_miner_dict["actions"], raw_miner_dict["reward"]):
+                        trajectories.append({"actions": acts, "reward": r})
+            except Exception as e:
+                print(f"⚠️ 读取挖掘池失败: {e}")
+                
         if not trajectories:
+            print("ℹ️ 暂无合规的成功解题轨迹可供挖掘，跳过本次周期")
             continue
 
         # 提取 N-gram (比如2元组) 并翻译成文本
@@ -67,26 +80,28 @@ def run_evolution_loop(net, preprocessor, memory_path="data/memory.pkl", trigger
             # 改写底层文件
             target_file = "knowledge/rules.py"
             generator.append_rule_to_source_file(target_file, code_str, rule_name)
-
-            # 进行安全验证
-            if generator.verify_generated_code(rule_name, file_path=target_file):
-                print(f"✅ [Pipeline] {rule_name} 编译验证通过。")
-
-                # 记录历史，递增 ID
+            
+            try:
+                # 3. 强行触发运行时热插拔加载与语法检查
+                hot_reload_knowledge()
+                
+                print(f"🚀 [Pipeline] {rule_name} 物理写入并重载成功！强行锁定进化状态。")
                 MACRO_HISTORY.add(macro_tuple)
                 NEW_RULE_ID_COUNTER += 1
-
-                # 3. 运行时热插拔加载
-                hot_reload_knowledge()
+                
+                # 创建一个强有力的物理信号文件，显式通知主训练进程更新缓存
+                with open("data/RELOAD_FLAG", "w") as f_flag:
+                    f_flag.write(rule_name)
 
                 # 4. 双塔网络认知无痛升级
                 refresh_brain_cognition(net, preprocessor, rule_name)
-
-            else:
-                print(f"❌ [Pipeline] {rule_name} 验证失败，已自动回滚。跳过当前宏。")
+            except Exception as e:
+                print(f"❌ [Pipeline] {rule_name} 写入导致语法崩溃，执行安全回滚: {e}")
+                if hasattr(generator, 'rollback_source_file'):
+                    generator.rollback_source_file(target_file)
 
         # 进化周期结束，清理或归档当前的 memory.pkl，准备下一次循环
-        archive_memory(memory_path)
+        print("📊 [Control Loop] 保留当前轨迹池，等待累积更多成功样本...")
         print("▶️ [Control Loop] 本轮进化完成，释放控制权，恢复自对弈...")
         print("=" * 50 + "\n")
 
@@ -110,62 +125,33 @@ def hot_reload_knowledge():
 
 def refresh_brain_cognition(net, preprocessor, new_rule_name):
     """
-    4. 双塔网络认知无痛升级
-    这一步是重构的精华。动作空间从 N 维扩容到 N+1 维。
-    因为是双塔网络（状态塔 + 动作规则塔），我们不需要随机初始化新动作的权重，
-    而是直接用动作塔（文本编码器）对新生成的规则文本进行特征抽取，实现 “零次学习 (Zero-shot)”。
+    4. 双塔网络认知无痛升级（修改后：利用 refresh_rule_cache 重新编码规则）
     """
     import knowledge.rules
 
-    print(f"🧠 [Cognition Refresh] 正在为神经网络扩容新动作: {new_rule_name}...")
+    print(f"🧠 [Cognition Refresh] 正在为神经网络扩容新动作: {new_rule_name}")
 
-    # 步骤 A：更新预处理器字典
-    # 预处理器负责把 rule_name 映射为网络输入需要的 Token 或索引
-    preprocessor.add_new_rule(new_rule_name)
+    # 步骤 A：更新预处理器的规则映射（如果预处理器支持）
+    if hasattr(preprocessor, 'add_new_rule'):
+        preprocessor.add_new_rule(new_rule_name)
 
-    with torch.no_grad():
-        # 步骤 B：利用动作塔 (Action Tower) 计算新动作的高维语义向量
-        # 获取刚热重载进来的新规则的文档字符串 (Docstring) 作为语义来源
-        new_rule_func = knowledge.rules.RULE_DICT[new_rule_name]
-        rule_description = new_rule_func.__doc__ if new_rule_func.__doc__ else new_rule_name
+    # 步骤 B：刷新网络的规则缓存（双塔架构会自动为新规则生成语义向量）
+    # 注意：此处必须传入一个能够将规则文本转换为 token 序列的函数
+    # 假设 preprocessor 有一个 tokenize_rule 方法，若没有则需自定义
+    if hasattr(preprocessor, 'tokenize_rule'):
+        tokenizer_fn = preprocessor.tokenize_rule
+    elif hasattr(preprocessor, 'tokenize'):
+        tokenizer_fn = preprocessor.tokenize
+    else:
+        # 后备方案：使用预处理器中已有的 state_to_tensor（但可能不适用于纯文本）
+        # 实际项目中推荐实现专门的规则 tokenizer
+        tokenizer_fn = lambda s: preprocessor.state_to_tensor(s)  # 风险：可能格式错误
+        print("⚠️ 警告：预处理器缺少规则专用 tokenizer，使用 state_to_tensor 替代，可能导致编码错误。")
 
-        # 将文本转换为特征向量 [1, hidden_dim]
-        new_action_embedding = net.action_encoder(preprocessor.tokenize(rule_description))
-
-        # 步骤 C：拼接网络权重 (Policy Head 扩容)
-        # 假设你的 actor_head 最终计算的是状态向量与动作向量的内积或拼接
-        # 如果是常见的分类层 (Linear)，我们将旧矩阵拉长
-        if hasattr(net, 'action_embeddings') and isinstance(net.action_embeddings, nn.Parameter):
-            old_embeddings = net.action_embeddings.data  # shape: [N, hidden_dim]
-            # 拼接到动作词表中 shape: [N+1, hidden_dim]
-            expanded_embeddings = torch.cat([old_embeddings, new_action_embedding], dim=0)
-
-            # 强制无痛替换网络参数，不破坏梯度图
-            net.action_embeddings = nn.Parameter(expanded_embeddings)
-
-        elif hasattr(net, 'actor_head') and isinstance(net.actor_head, nn.Linear):
-            # 如果是全连接层，比如 Linear(state_dim, N)
-            old_weight = net.actor_head.weight.data  # shape: [N, state_dim]
-            old_bias = net.actor_head.bias.data  # shape: [N]
-
-            state_dim = old_weight.shape[1]
-            new_layer = nn.Linear(state_dim, old_weight.shape[0] + 1)
-
-            # 保留原有 N 个动作的肌肉记忆
-            new_layer.weight.data[:-1] = old_weight
-            new_layer.bias.data[:-1] = old_bias
-
-            # 利用新动作的语义向量初始化最后一行权重（加速收敛）
-            # 假设语义向量的维度和 state_dim 一致或可通过投影对齐
-            if new_action_embedding.shape[-1] == state_dim:
-                new_layer.weight.data[-1] = new_action_embedding.squeeze(0)
-            else:
-                nn.init.xavier_uniform_(new_layer.weight.data[-1:])
-
-            new_layer.bias.data[-1] = 0.0
-
-            net.actor_head = new_layer
-
+    net.refresh_rule_cache(
+        knowledge.rules.RULE_NAMES,
+        tokenizer_fn=tokenizer_fn
+    )
     print(f"⚡ [Cognition Refresh] 升级完成！双塔网络现在可输出 {len(knowledge.rules.RULE_NAMES)} 种动作。")
 
 
@@ -173,9 +159,17 @@ def refresh_brain_cognition(net, preprocessor, new_rule_name):
 # 辅助函数（示意性）
 # ---------------------------------------------------------
 def should_trigger_evolution(memory_path, threshold):
-    """简单模拟触发逻辑：文件存在且达到一定大小则触发"""
-    if os.path.exists(memory_path):
-        return os.path.getsize(memory_path) > threshold * 10  # 伪逻辑
+    """硬核改版：直接读取成功题数，达到设定值立刻触发进化"""
+    import pickle
+    if os.path.exists(memory_path) and os.path.getsize(memory_path) > 0:
+        try:
+            with open(memory_path, 'rb') as f:
+                data = pickle.load(f)
+            if isinstance(data, dict) and "actions" in data:
+                # 只要累积成功解出的题目达到 10 道（即 10 条成功轨迹），就激活宏挖掘
+                return len(data["actions"]) >= 10
+        except Exception:
+            return False
     return False
 
 
@@ -183,3 +177,18 @@ def archive_memory(memory_path):
     """归档历史数据，清空当前经验池，准备下个阶段"""
     if os.path.exists(memory_path):
         os.rename(memory_path, memory_path + f".archived_{time.time()}")
+if __name__ == "__main__":
+    from core.network import MathNet
+    from utils.preprocessor import MathPreprocessor
+    
+    # 实例化最基础的组件，用来作为热加载的句柄
+    preprocessor = MathPreprocessor(max_len=128)
+    net = MathNet(vocab_size=preprocessor.vocab_size)
+    
+    # 启动进化守护进程，将触发阈值设为 300 条轨迹记录
+    run_evolution_loop(
+        net=net, 
+        preprocessor=preprocessor, 
+        memory_path="data/memory_final_for_miner.pkl", 
+        trigger_threshold=300
+    )

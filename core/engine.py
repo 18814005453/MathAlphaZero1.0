@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 import torch.nn.functional as F
+from sympy import srepr, parse_expr   # 用于表达式规范化
 
 from core.state import IntegrationState
 from core.actions import Action
@@ -103,42 +104,61 @@ class MCTS:
             node.is_expanded = True
             return
 
-        # 2. 构造输入张量（确保带有 batch 维度）
-        raw_tensor = self.preprocessor.state_to_tensor(node.state.expr)
+        # 2. 获取合法动作（用于构造 mask 和后续子节点）
+        legal_acts = self.env.legal_actions(node.state)
+        if not legal_acts:
+            node.is_expanded = True
+            return
+
+        # 3. 构造合法动作掩码 (mask_tensor)
+        num_rules = self.network.get_rule_embeddings().size(0)   # 动态获取当前规则总数
+        mask = torch.zeros(num_rules, dtype=torch.bool, device=self.device)
+        for act in legal_acts:
+            idx = self._get_rule_index(act.id)
+            if 0 <= idx < num_rules:
+                mask[idx] = True
+            else:
+                # 若索引越界（罕见，动态扩展时可能出现），记录警告并跳过
+                print(f"⚠️ 警告: 动作 {act.id} 索引 {idx} 超出规则范围 ({num_rules})")
+
+        # 4. 规范化表达式并构造输入张量（修改点3）
+        #    使用 srepr + parse_expr 消除交换律导致的差异
+        original_expr = node.state.expr
+        try:
+            norm_expr = parse_expr(srepr(original_expr))
+        except Exception as e:
+            # 如果规范化失败，回退到原始表达式
+            norm_expr = original_expr
+        raw_tensor = self.preprocessor.state_to_tensor(norm_expr)
         if raw_tensor.dim() == 0:
             state_tensor = raw_tensor.unsqueeze(0).unsqueeze(0)
         else:
             state_tensor = raw_tensor.view(1, -1)
         state_tensor = state_tensor.to(self.device)
 
-        # 3. 先执行网络前向传播
+        # 5. 执行网络前向传播，传入 mask_tensor（修改点1）
         with torch.no_grad():
-            policy_logits, value = self.network(state_tensor)
+            policy_logits, value = self.network(state_tensor, mask)
             # 显式切片，避免 squeeze 导致标量
             if policy_logits.dim() > 1:
                 policy_logits = policy_logits[0, :]   # [1, N] -> [N]
 
         node.value = value.item()
 
-        # 4. 获取合法动作及索引
-        legal_acts = self.env.legal_actions(node.state)
-        if not legal_acts:
-            node.is_expanded = True
-            return
-
+        # 6. 缓存合法动作的索引（用于后续快速提取）
         node.legal_cache_indices = [self._get_rule_index(act.id) for act in legal_acts]
 
-        # 5. 提取合法动作的 logits 并 softmax
+        # 7. 提取合法动作的 logits 并 softmax
         legal_logits = policy_logits[node.legal_cache_indices]   # 一维索引安全
         probs = F.softmax(legal_logits, dim=0).cpu().numpy().astype(np.float32)
 
-        # 6. 按概率排序存储
+        # 8. 按概率排序存储
         pairs = list(zip(legal_acts, probs))
         pairs.sort(key=lambda x: x[1], reverse=True)
         node.sorted_actions = [p[0] for p in pairs]
         node.sorted_probs = np.array([p[1] for p in pairs], dtype=np.float32)
 
-        # 7. 可选：Dirichlet 噪声（仅根节点）
+        # 9. 可选：Dirichlet 噪声（仅根节点）
         if add_dirichlet and len(node.sorted_actions) > 0:
             num_actions = len(node.sorted_actions)
             noise = np.random.dirichlet([self.dirichlet_alpha] * num_actions)
@@ -331,21 +351,29 @@ class MCTS:
 
             # 动态温度：前8步用较高探索，之后降温
             current_temp = temperature if step_idx < 8 else 0.1
-            current_rule_count = self.network.get_rule_embeddings().size(0)
+            current_rule_count = self.network.get_rule_embeddings().size(0)   # 动态获取（修改点2）
             global_policy_target = np.zeros(current_rule_count, dtype=np.float32)
 
             total_n = sum(action_counts.values())
             for act, n in action_counts.items():
                 prob = (n / total_n) ** (1.0 / current_temp) if current_temp > 0 else 0
                 target_idx = self._get_rule_index(act.id)
-                global_policy_target[target_idx] = prob
+                if 0 <= target_idx < current_rule_count:
+                    global_policy_target[target_idx] = prob
+                else:
+                    # 越界保护：跳过该动作（理论上不应发生）
+                    continue
 
             if global_policy_target.sum() > 0:
                 global_policy_target /= global_policy_target.sum()
             else:
                 best_act = max(action_counts.items(), key=lambda x: x[1])[0]
                 best_idx = self._get_rule_index(best_act.id)
-                global_policy_target[best_idx] = 1.0
+                if 0 <= best_idx < current_rule_count:
+                    global_policy_target[best_idx] = 1.0
+                else:
+                    # 极端情况：均匀 fallback
+                    global_policy_target = np.ones(current_rule_count, dtype=np.float32) / current_rule_count
 
             # 按访问计数采样动作
             actions = list(action_counts.keys())
