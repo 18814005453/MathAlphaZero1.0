@@ -7,18 +7,19 @@ from sympy import Abs, diff, apart, together, factor, expand, simplify, degree, 
 from sympy.core.numbers import Rational, Number, NumberSymbol
 from sympy.simplify.fu import TR2i, TR3, TR5, TR6, TR7, TR8, TR9, TR10, TR11
 
-# 新增：导入注册表装饰器
 from knowledge.rule_registry import register_rule
 
 x = Symbol('x')
 
-# ---------- 辅助函数（保持不变） ----------
+
+# ---------- 辅助函数 ----------
 def is_constant(expr, var):
     if isinstance(expr, (int, float)):
         return True
     if hasattr(expr, 'is_constant'):
         return expr.is_constant(var)
     return False
+
 
 def is_linear_in_x(expr):
     if not expr.has(x):
@@ -31,6 +32,7 @@ def is_linear_in_x(expr):
         return False
     return True
 
+
 def linear_coeff(expr):
     if not expr.has(x):
         return (0, expr)
@@ -41,18 +43,21 @@ def linear_coeff(expr):
     a = diff(expr, x)
     if a.is_constant(x):
         b = expr.subs(x, 0)
-        if simplify(expr - (a*x + b)) == 0:
+        if simplify(expr - (a * x + b)) == 0:
             return (a, b)
     return (None, None)
 
+
 def is_sqrt(expr):
     return isinstance(expr, Pow) and expr.exp == Rational(1, 2)
+
 
 def is_rational_function(expr, var=x):
     num, den = expr.as_numer_denom()
     return num.is_polynomial(var) and den.is_polynomial(var)
 
-# ---------- 规则函数（每个都加上 @register_rule()） ----------
+
+# ---------- 规则函数 ----------
 @register_rule()
 def rule_extract_constant(integral):
     """∫ c f dx = c ∫ f dx"""
@@ -63,6 +68,7 @@ def rule_extract_constant(integral):
         return (coeff * Integral(rest, x), "rewrite")
     return None
 
+
 @register_rule()
 def rule_split_addition(integral):
     """∫ (f+g) dx = ∫f dx + ∫g dx"""
@@ -71,6 +77,7 @@ def rule_split_addition(integral):
     if isinstance(func, Add):
         return (Add(*[Integral(arg, x) for arg in func.args]), "rewrite")
     return None
+
 
 @register_rule()
 def rule_linear_composition(integral):
@@ -90,11 +97,11 @@ def rule_linear_composition(integral):
                     f_u = func.func(u_sym)
                     new_int = Integral(f_u, u_sym)
                     return ({
-                        "type": "substitution",
-                        "u_expr": arg,
-                        "factor": 1/a,
-                        "integral": new_int
-                    }, "substitution")
+                                "type": "substitution",
+                                "u_expr": arg,
+                                "factor": 1 / a,
+                                "integral": new_int
+                            }, "substitution")
     if is_sqrt(func):
         inner = func.args[0]
         if is_linear_in_x(inner):
@@ -104,11 +111,11 @@ def rule_linear_composition(integral):
                 f_u = sqrt(u_sym)
                 new_int = Integral(f_u, u_sym)
                 return ({
-                    "type": "substitution",
-                    "u_expr": inner,
-                    "factor": 1/a,
-                    "integral": new_int
-                }, "substitution")
+                            "type": "substitution",
+                            "u_expr": inner,
+                            "factor": 1 / a,
+                            "integral": new_int
+                        }, "substitution")
     return None
 
 
@@ -117,10 +124,8 @@ def rule_power_integral(integral):
     """幂函数积分 - 增强版"""
     if not isinstance(integral, Integral): return None
     func = integral.function
-    # 常数
     if is_constant(func, x):
         return (func * x, "solved")
-    # x^n (包括 x^1)
     if func == x or (isinstance(func, Pow) and func.base == x):
         if func == x:
             n = 1
@@ -129,25 +134,25 @@ def rule_power_integral(integral):
         if n == -1:
             return (log(Abs(x)), "solved")
         else:
-            return (x**(n+1) / (n+1), "solved")
-    # (ax+b)^n
+            return (x ** (n + 1) / (n + 1), "solved")
     if isinstance(func, Pow):
         base, expn = func.base, func.exp
         if is_linear_in_x(base):
             a, b = linear_coeff(base)
             if a != 0 and is_constant(a, x):
                 if expn == -1:
-                    return ((1/a) * log(Abs(base)), "solved")
+                    return ((1 / a) * log(Abs(base)), "solved")
                 else:
-                    return (base**(expn+1) / (a * (expn+1)), "solved")
-    # sqrt(ax+b)
+                    return (base ** (expn + 1) / (a * (expn + 1)), "solved")
     if is_sqrt(func):
         inner = func.args[0]
         if is_linear_in_x(inner):
             a, b = linear_coeff(inner)
             if a != 0:
-                return ((2/(3*a)) * (inner)**(3/2), "solved")
+                return ((2 / (3 * a)) * (inner) ** (3 / 2), "solved")
     return None
+
+
 @register_rule()
 def rule_rational_power(integral):
     if not isinstance(integral, Integral): return None
@@ -156,17 +161,19 @@ def rule_rational_power(integral):
         base, expn = func.base, func.exp
         if expn.is_Rational and not expn.equals(-1):
             if base == x:
-                return (x**(expn+1) / (expn+1), "solved")
+                return (x ** (expn + 1) / (expn + 1), "solved")
             if is_linear_in_x(base):
                 a, b = linear_coeff(base)
                 if a != 0:
-                    return (base**(expn+1) / (a * (expn+1)), "solved")
+                    return (base ** (expn + 1) / (a * (expn + 1)), "solved")
     return None
+
 
 @register_rule()
 def rule_trig_integral(integral):
     if not isinstance(integral, Integral): return None
     func = integral.function
+
     def linear_trig(fn, arg):
         if arg == x:
             if fn == sin: return -cos(x)
@@ -187,6 +194,7 @@ def rule_trig_integral(integral):
                 if fn == cot: return log(Abs(sin(arg))) / a
                 if fn == coth: return log(sinh(arg)) / a
         return None
+
     if func.func == sin:
         res = linear_trig(sin, func.args[0])
         if res: return (res, "solved")
@@ -208,9 +216,9 @@ def rule_trig_integral(integral):
     if func.func == coth:
         res = linear_trig(coth, func.args[0])
         if res: return (res, "solved")
-    if func == sec(x)**2:
+    if func == sec(x) ** 2:
         return (tan(x), "solved")
-    if func == csc(x)**2:
+    if func == csc(x) ** 2:
         return (-cot(x), "solved")
     if func.is_Mul and len(func.args) == 2:
         if (func.args[0] == sec(x) and func.args[1] == tan(x)) or (func.args[0] == tan(x) and func.args[1] == sec(x)):
@@ -218,6 +226,7 @@ def rule_trig_integral(integral):
         if (func.args[0] == csc(x) and func.args[1] == cot(x)) or (func.args[0] == cot(x) and func.args[1] == csc(x)):
             return (-csc(x), "solved")
     return None
+
 
 @register_rule()
 def rule_trig_power_reduction(integral):
@@ -227,15 +236,16 @@ def rule_trig_power_reduction(integral):
         base = func.base
         if base.func == sin:
             theta = base.args[0]
-            return (Integral((1 - cos(2*theta))/2, x), "rewrite")
+            return (Integral((1 - cos(2 * theta)) / 2, x), "rewrite")
         if base.func == cos:
             theta = base.args[0]
-            return (Integral((1 + cos(2*theta))/2, x), "rewrite")
+            return (Integral((1 + cos(2 * theta)) / 2, x), "rewrite")
         if base == tan(x):
-            return (Integral(sec(x)**2 - 1, x), "rewrite")
+            return (Integral(sec(x) ** 2 - 1, x), "rewrite")
         if base == cot(x):
-            return (Integral(csc(x)**2 - 1, x), "rewrite")
+            return (Integral(csc(x) ** 2 - 1, x), "rewrite")
     return None
+
 
 @register_rule()
 def rule_trig_product_to_sum(integral):
@@ -245,6 +255,7 @@ def rule_trig_product_to_sum(integral):
     if new_func != func:
         return (Integral(new_func, x), "rewrite")
     return None
+
 
 @register_rule()
 def rule_exp_integral(integral):
@@ -264,6 +275,7 @@ def rule_exp_integral(integral):
             return (func / log(base), "solved")
     return None
 
+
 @register_rule()
 def rule_log_integral(integral):
     if not isinstance(integral, Integral): return None
@@ -271,12 +283,13 @@ def rule_log_integral(integral):
     if func.func == log:
         arg = func.args[0]
         if arg == x:
-            return (x*log(x) - x, "solved")
+            return (x * log(x) - x, "solved")
         if is_linear_in_x(arg):
             a, b = linear_coeff(arg)
             if a != 0:
-                return ((arg/a)*log(arg) - arg/a, "solved")
+                return ((arg / a) * log(arg) - arg / a, "solved")
     return None
+
 
 @register_rule()
 def rule_exp_trig_product(integral):
@@ -305,14 +318,16 @@ def rule_exp_trig_product(integral):
                 return None
             gamma = theta.subs(x, 0)
             if trig_part.func == sin:
-                result = exp_part * (alpha * sin(theta) - beta * cos(theta)) / (alpha**2 + beta**2)
+                result = exp_part * (alpha * sin(theta) - beta * cos(theta)) / (alpha ** 2 + beta ** 2)
                 return (result, "solved")
             if trig_part.func == cos:
-                result = exp_part * (alpha * cos(theta) + beta * sin(theta)) / (alpha**2 + beta**2)
+                result = exp_part * (alpha * cos(theta) + beta * sin(theta)) / (alpha ** 2 + beta ** 2)
                 return (result, "solved")
     return None
 
+
 from sympy import Wild, log, sqrt, Abs, asin, atan, Rational, Pow, Add
+
 
 @register_rule()
 def rule_inv_trig_integral(integral):
@@ -322,26 +337,27 @@ def rule_inv_trig_integral(integral):
     A = Wild('A', exclude=[x])
     if isinstance(func, Pow) and func.exp == -Rational(1, 2):
         inner = func.base
-        m1 = inner.match(A - x**2)
+        m1 = inner.match(A - x ** 2)
         if m1 and m1[A] != 0:
             a = sqrt(m1[A])
             return (asin(x / a), "solved")
-        m2 = inner.match(x**2 + A)
+        m2 = inner.match(x ** 2 + A)
         if m2 and m2[A] != 0:
             if '-' not in str(m2[A]):
-                return (log(x + sqrt(x**2 + m2[A])), "solved")
+                return (log(x + sqrt(x ** 2 + m2[A])), "solved")
             else:
-                return (log(Abs(x + sqrt(x**2 + m2[A]))), "solved")
-        m3 = inner.match(x**2 - A)
+                return (log(Abs(x + sqrt(x ** 2 + m2[A]))), "solved")
+        m3 = inner.match(x ** 2 - A)
         if m3 and m3[A] != 0:
-            return (log(Abs(x + sqrt(x**2 - m3[A]))), "solved")
+            return (log(Abs(x + sqrt(x ** 2 - m3[A]))), "solved")
     if isinstance(func, Pow) and func.exp == -1:
         denom = func.base
-        m4 = denom.match(x**2 + A)
+        m4 = denom.match(x ** 2 + A)
         if m4 and m4[A] != 0:
             a = sqrt(m4[A])
             return ((1 / a) * atan(x / a), "solved")
     return None
+
 
 @register_rule()
 def rule_rational_function(integral):
@@ -355,10 +371,11 @@ def rule_rational_function(integral):
             if isinstance(func, Pow) and func.exp == -1 and is_linear_in_x(func.base):
                 a, b = linear_coeff(func.base)
                 if a != 0:
-                    return ((1/a)*log(Abs(func.base)), "solved")
+                    return ((1 / a) * log(Abs(func.base)), "solved")
         except:
             pass
     return None
+
 
 @register_rule()
 def rule_rational_improper(integral):
@@ -377,6 +394,7 @@ def rule_rational_improper(integral):
             except:
                 pass
     return None
+
 
 @register_rule()
 def rule_sqrt_quadratic(integral):
@@ -397,27 +415,28 @@ def rule_sqrt_quadratic(integral):
         inner = sqrt_expr.args[0]
         if inner.is_polynomial(x) and degree(inner, x) == 2:
             poly_expr = Poly(inner, x)
-            a = poly_expr.coeff_monomial(x**2)
+            a = poly_expr.coeff_monomial(x ** 2)
             b = poly_expr.coeff_monomial(x)
             c = poly_expr.coeff_monomial(1)
-            h = -b/(2*a)
-            k = c - b**2/(4*a)
+            h = -b / (2 * a)
+            k = c - b ** 2 / (4 * a)
             u_sym = Symbol('u')
-            new_inner = a*u_sym**2 + k
+            new_inner = a * u_sym ** 2 + k
             new_sqrt = sqrt(new_inner)
             new_other = other.subs(x, u_sym - h)
             new_integrand = new_other * new_sqrt
             return ({
-                "type": "substitution",
-                "u_expr": x + h,
-                "factor": 1,
-                "integral": Integral(new_integrand, u_sym)
-            }, "substitution")
+                        "type": "substitution",
+                        "u_expr": x + h,
+                        "factor": 1,
+                        "integral": Integral(new_integrand, u_sym)
+                    }, "substitution")
     return None
 
 
 import functools
 import signal
+
 
 def timeout(seconds=2):
     def decorator(func):
@@ -425,6 +444,7 @@ def timeout(seconds=2):
         def wrapper(*args, **kwargs):
             def handler(signum, frame):
                 raise TimeoutError()
+
             old_handler = signal.signal(signal.SIGALRM, handler)
             signal.alarm(seconds)
             try:
@@ -435,8 +455,11 @@ def timeout(seconds=2):
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, old_handler)
             return result
+
         return wrapper
+
     return decorator
+
 
 @register_rule()
 def rule_integration_by_parts(integral):
@@ -445,7 +468,7 @@ def rule_integration_by_parts(integral):
     func = integral.function
     if not func.is_Mul or len(func.args) < 2:
         return None
-    
+
     def liate_score(expr):
         if expr.has(log): return 5
         if expr.has(asin, acos, atan, acot, asec, acsc): return 4
@@ -453,23 +476,24 @@ def rule_integration_by_parts(integral):
         if expr.has(sin, cos, tan, sec, csc, cot): return 2
         if expr.has(exp): return 1
         return 0
-    
+
     args = list(func.args)
     u_idx = max(range(len(args)), key=lambda i: liate_score(args[i]))
     u = args[u_idx]
-    dv_dx = Mul(*(args[:u_idx] + args[u_idx+1:]))
-    
-    # 超时保护
+    dv_dx = Mul(*(args[:u_idx] + args[u_idx + 1:]))
+
     try:
         v = sympy.integrate(dv_dx, x)
         if v.has(Integral):
             return None
     except:
         return None
-    
+
     du_dx = diff(u, x)
     new_expr = u * v - Integral(v * du_dx, x)
     return (new_expr, "rewrite")
+
+
 @register_rule()
 def rule_trig_substitution(integral):
     if not isinstance(integral, Integral): return None
@@ -484,24 +508,26 @@ def rule_trig_substitution(integral):
                 break
     if sqrt_expr:
         inner = sqrt_expr.args[0]
-        if inner.equals(1 - x**2):
+        if inner.equals(1 - x ** 2):
             theta = Symbol('theta')
             x_theta = sin(theta)
             dx_dtheta = cos(theta)
             new_integrand = func.subs(x, x_theta) * dx_dtheta
-            new_integrand = new_integrand.replace(sqrt(cos(theta)**2), cos(theta))
+            new_integrand = new_integrand.replace(sqrt(cos(theta) ** 2), cos(theta))
             return ({
-                "type": "substitution",
-                "u_expr": asin(x),
-                "factor": 1,
-                "integral": Integral(new_integrand, theta)
-            }, "substitution")
+                        "type": "substitution",
+                        "u_expr": asin(x),
+                        "factor": 1,
+                        "integral": Integral(new_integrand, theta)
+                    }, "substitution")
     return None
+
 
 @register_rule()
 def rule_hyperbolic_integral(integral):
     if not isinstance(integral, Integral): return None
     func = integral.function
+
     def linear_hyper(fn, arg):
         if arg == x:
             if fn == sinh: return cosh(x)
@@ -509,7 +535,7 @@ def rule_hyperbolic_integral(integral):
             if fn == tanh: return log(cosh(x))
             if fn == coth: return log(sinh(x))
             if fn == sech: return atan(sinh(x))
-            if fn == csch: return log(tanh(x/2))
+            if fn == csch: return log(tanh(x / 2))
         if is_linear_in_x(arg):
             a, b = linear_coeff(arg)
             if a != 0:
@@ -518,8 +544,9 @@ def rule_hyperbolic_integral(integral):
                 if fn == tanh: return log(cosh(arg)) / a
                 if fn == coth: return log(sinh(arg)) / a
                 if fn == sech: return atan(sinh(arg)) / a
-                if fn == csch: return log(tanh(arg/2)) / a
+                if fn == csch: return log(tanh(arg / 2)) / a
         return None
+
     if func.func == sinh:
         res = linear_hyper(sinh, func.args[0])
         if res: return (res, "solved")
@@ -538,9 +565,9 @@ def rule_hyperbolic_integral(integral):
     if func.func == csch:
         res = linear_hyper(csch, func.args[0])
         if res: return (res, "solved")
-    if func == sech(x)**2:
+    if func == sech(x) ** 2:
         return (tanh(x), "solved")
-    if func == csch(x)**2:
+    if func == csch(x) ** 2:
         return (-coth(x), "solved")
     if isinstance(func, Pow) and func.exp == 2:
         if func.base.func == sech:
@@ -561,6 +588,7 @@ def rule_hyperbolic_integral(integral):
                     return (-coth(inner) / a, "solved")
     return None
 
+
 @register_rule()
 def rule_reduction_formula(integral):
     if not isinstance(integral, Integral): return None
@@ -574,8 +602,8 @@ def rule_reduction_formula(integral):
             a, _ = linear_coeff(theta)
             if a == 0:
                 return None
-            term1 = - (1/n) * sin(theta)**(n-1) * cos(theta) / a
-            term2 = ((n-1)/n) * Integral(sin(theta)**(n-2), x)
+            term1 = - (1 / n) * sin(theta) ** (n - 1) * cos(theta) / a
+            term2 = ((n - 1) / n) * Integral(sin(theta) ** (n - 2), x)
             return (term1 + term2, "rewrite")
         if base.func == cos:
             theta = base.args[0]
@@ -584,15 +612,16 @@ def rule_reduction_formula(integral):
             a, _ = linear_coeff(theta)
             if a == 0:
                 return None
-            term1 = (1/n) * cos(theta)**(n-1) * sin(theta) / a
-            term2 = ((n-1)/n) * Integral(cos(theta)**(n-2), x)
+            term1 = (1 / n) * cos(theta) ** (n - 1) * sin(theta) / a
+            term2 = ((n - 1) / n) * Integral(cos(theta) ** (n - 2), x)
             return (term1 + term2, "rewrite")
         if base == tan(x):
             if n != 1:
-                term1 = (1/(n-1)) * tan(x)**(n-1)
-                term2 = Integral(tan(x)**(n-2), x)
+                term1 = (1 / (n - 1)) * tan(x) ** (n - 1)
+                term2 = Integral(tan(x) ** (n - 2), x)
                 return (term1 - term2, "rewrite")
     return None
+
 
 @register_rule()
 def rule_simplify(integral):
@@ -606,6 +635,8 @@ def rule_simplify(integral):
         return (Integral(trig_simp, x), "rewrite")
     return None
 
-# ========== 最后一行：构建动作空间（必须在所有规则定义之后） ==========
+
+# ========== 构建动作空间（必须在所有规则定义之后） ==========
 from knowledge.rule_registry import build_action_space
-build_action_space()   # 这会填充 RULE_NAMES 和 RULE_DICT 供旧代码兼容
+
+build_action_space()

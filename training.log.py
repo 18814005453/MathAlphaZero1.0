@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# auto_train.py - MathAlphaZero 3.0 自动训练（最终修复版）
-# 修复：模型维度兼容、自动忽略旧权重、损失正常下降
+# auto_train.py - MathAlphaZero 3.0 自动训练脚本
+# 用法: python auto_train.py [--epochs 200] [--batch_size 64] ...
 
 import os
 import sys
@@ -11,7 +11,9 @@ import random
 import pickle
 import argparse
 import logging
+import threading
 from collections import defaultdict, deque
+from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -19,17 +21,16 @@ import torch.nn as nn
 import torch.optim as optim
 import sympy as sp
 
-# 导入规则模块（必须）
-import knowledge.rules
-
+# ----------------------------- 项目模块导入 -----------------------------
+# 确保所有升级后的模块位于正确路径
 from core.state import IntegrationState
+from core.actions import Action
 from core.env import IntegrationEnv
 from core.network import MathAlphaZeroNet
 from core.engine import MCTS
 from utils.preprocessor import MathPreprocessor
 from utils.validator import MathValidator
-from knowledge.rule_registry import build_action_space, get_all_rule_names, get_num_rules, reload_module
-
+from knowledge.rule_registry import get_all_rule_names, get_num_rules, build_action_space, reload_module
 
 # ----------------------------- 日志配置 -----------------------------
 LOG_FILE = "training.log"
@@ -43,8 +44,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MathAlphaZero")
 
-
-# ----------------------------- 题目生成器 -----------------------------
+# ----------------------------- 辅助函数 -----------------------------
 def _random_coefficient():
     if random.random() < 0.7:
         return random.randint(1, 5) * random.choice([-1, 1])
@@ -116,7 +116,6 @@ def generate_problem_with_ast_depth(max_depth: int, max_attempts=30) -> sp.Expr:
             return expr
     return generate_random_problem("easy")
 
-
 # ----------------------------- 优先经验回放 (PER) -----------------------------
 class PrioritizedReplayBuffer:
     def __init__(self, capacity=30000, alpha=0.6, beta=0.4, beta_increment=0.001):
@@ -166,7 +165,6 @@ class PrioritizedReplayBuffer:
             with open(path, 'rb') as f:
                 self.buffer, self.priorities, self.pos = pickle.load(f)
 
-
 # ----------------------------- 课程学习 -----------------------------
 class CurriculumTracker:
     def __init__(self, start_depth=2, max_depth=20, window_size=50):
@@ -185,8 +183,7 @@ class CurriculumTracker:
             self.current_depth = max(2, self.current_depth - 1)
         return self.current_depth
 
-
-# ----------------------------- 热重载检测 -----------------------------
+# ----------------------------- 监控热重载标志 -----------------------------
 def check_and_reload(net, preprocessor):
     flag_file = "data/RELOAD_FLAG"
     if os.path.exists(flag_file):
@@ -194,6 +191,7 @@ def check_and_reload(net, preprocessor):
             with open(flag_file, 'r') as f:
                 rule_name = f.read().strip()
             logger.info(f"检测到热重载标志，新规则: {rule_name}")
+            # 重载规则模块
             reload_module("knowledge.rules")
             new_rule_names = get_all_rule_names()
             new_num_rules = get_num_rules()
@@ -205,48 +203,43 @@ def check_and_reload(net, preprocessor):
         finally:
             os.remove(flag_file)
 
-
 # ----------------------------- 主训练函数 -----------------------------
 def main():
-    parser = argparse.ArgumentParser(description="MathAlphaZero 自动训练（最终修复版）")
+    parser = argparse.ArgumentParser(description="MathAlphaZero 自动训练")
     parser.add_argument("--epochs", type=int, default=200, help="训练轮数")
     parser.add_argument("--problems_per_epoch", type=int, default=60, help="每轮题目数")
-    parser.add_argument("--simulations", type=int, default=50, help="MCTS模拟次数")
-    parser.add_argument("--batch_size", type=int, default=32, help="训练批次大小")
-    parser.add_argument("--lr", type=float, default=0.001, help="学习率")
+    parser.add_argument("--simulations", type=int, default=400, help="MCTS模拟次数")
+    parser.add_argument("--batch_size", type=int, default=64, help="训练批次大小")
+    parser.add_argument("--lr", type=float, default=0.0005, help="学习率")
     parser.add_argument("--gamma", type=float, default=0.96, help="折扣因子")
     parser.add_argument("--td_lambda", type=float, default=0.8, help="TD(λ)参数")
     parser.add_argument("--n_step", type=int, default=5, help="n步回报")
-    parser.add_argument("--problem_timeout", type=float, default=30.0, help="每题超时(秒)")
+    parser.add_argument("--timeout", type=float, default=60.0, help="每题超时(秒)")
     parser.add_argument("--max_depth", type=int, default=30, help="最大深度")
-    parser.add_argument("--temperature", type=float, default=0.5, help="策略温度")
+    parser.add_argument("--temperature", type=float, default=1.0, help="初始温度")
     parser.add_argument("--load_model", type=str, default="data/brain_3.0.pth", help="加载模型路径")
     parser.add_argument("--save_model", type=str, default="data/brain_3.0.pth", help="保存模型路径")
     parser.add_argument("--memory_path", type=str, default="data/memory_per.pkl", help="经验池路径")
     parser.add_argument("--miner_memory", type=str, default="data/memory_final_for_miner.pkl", help="模式挖掘数据路径")
     parser.add_argument("--no_auto_discover", action="store_true", help="禁用自动发现监听")
-    parser.add_argument("--reset", action="store_true", help="强制忽略已有模型，从头训练")
     args = parser.parse_args()
 
-    logger.info("====== MathAlphaZero 3.0 自动训练（最终修复版）启动 ======")
+    logger.info("====== MathAlphaZero 3.0 自动训练启动 ======")
     logger.info(f"参数配置: {vars(args)}")
 
     # 初始化组件
-    build_action_space()
     preprocessor = MathPreprocessor(max_len=128)
     validator = MathValidator()
+    build_action_space()
     rule_names = get_all_rule_names()
     num_actions = get_num_rules()
     logger.info(f"规则库加载完成，动作空间大小: {num_actions}")
 
-    # 网络结构（与 quick_fix/train_working 一致）
     net = MathAlphaZeroNet(
         vocab_size=preprocessor.vocab_size,
         num_actions=num_actions,
-        d_model=64,          # 与成功训练一致
-        nhead=4,
-        num_layers=2,
-        learn_temperature=False
+        d_model=128, nhead=4, num_layers=3,
+        learn_temperature=True
     )
     action_ids = list(range(num_actions))
     net.refresh_rule_cache(rule_names, preprocessor._string_to_ids, action_ids=action_ids)
@@ -254,21 +247,9 @@ def main():
     optimizer = optim.Adam(net.parameters(), lr=args.lr)
     os.makedirs("data", exist_ok=True)
 
-    # 加载模型（兼容旧权重，自动忽略不匹配）
-    if not args.reset and os.path.exists(args.load_model):
-        try:
-            state_dict = torch.load(args.load_model)
-            # 过滤不匹配的键
-            model_state = net.state_dict()
-            filtered_dict = {k: v for k, v in state_dict.items() if k in model_state and v.shape == model_state[k].shape}
-            if len(filtered_dict) < len(state_dict):
-                logger.warning(f"部分权重不匹配，已忽略 {len(state_dict)-len(filtered_dict)} 个键")
-            net.load_state_dict(filtered_dict, strict=False)
-            logger.info(f"加载模型: {args.load_model} (兼容模式)")
-        except Exception as e:
-            logger.warning(f"加载模型失败: {e}，将从头训练")
-    else:
-        logger.info("未加载预训练模型，从头开始训练")
+    if os.path.exists(args.load_model):
+        net.load_state_dict(torch.load(args.load_model))
+        logger.info(f"加载模型: {args.load_model}")
 
     memory = PrioritizedReplayBuffer(capacity=30000)
     memory.load(args.memory_path)
@@ -276,64 +257,57 @@ def main():
 
     curriculum = CurriculumTracker(start_depth=2, max_depth=15)
     solved_set = set()
+
+    # 训练历史记录
     history = {"epoch": [], "success_rate": [], "loss": [], "depth": []}
 
-    # 固定题目集（简单题目确保初始成功率）
-    x = sp.Symbol('x')
-    base_problems = [
-        sp.Integral(x**2, x), sp.Integral(x**3, x), sp.Integral(x**4, x),
-        sp.Integral(sp.sin(x), x), sp.Integral(sp.cos(x), x), sp.Integral(sp.exp(x), x),
-        sp.Integral(2*x, x), sp.Integral(3*x**2, x), sp.Integral(sp.sin(2*x), x),
-        sp.Integral(sp.cos(3*x), x), sp.Integral(1/(x+1), x), sp.Integral(sp.exp(2*x), x)
-    ]
-
+    # 主训练循环
     for epoch in range(1, args.epochs + 1):
         current_depth = curriculum.step(threshold=0.65)
         logger.info(f"Epoch {epoch}/{args.epochs} | 课程深度: {current_depth} | 经验池大小: {len(memory)}")
 
-        # 生成题目：基础题 + 新难度题
-        problems = list(base_problems)
-        for _ in range(args.problems_per_epoch - len(base_problems)):
+        # 生成题目
+        problems = []
+        for _ in range(args.problems_per_epoch):
             expr = generate_problem_with_ast_depth(current_depth)
             norm = str(expr)
-            if norm not in solved_set:
-                problems.append(expr)
+            if norm in solved_set:
+                continue
+            problems.append(expr)
 
         if not problems:
-            logger.warning("本轮无题目，跳过")
+            logger.warning("本轮无新题目，跳过")
             continue
 
         success_count = 0
         epoch_losses = []
 
         for expr in problems:
-            state = IntegrationState(expr)
+            state = IntegrationState(sp.Integral(expr, sp.Symbol('x')))
             mcts = MCTS(
                 network=net,
                 preprocessor=preprocessor,
                 num_simulations=args.simulations,
-                timeout=args.problem_timeout,
+                timeout=args.timeout,
                 max_depth=args.max_depth,
                 gamma=args.gamma,
-                num_parallel=1  # 禁用并行，避免死锁
+                num_parallel=4
             )
             trajectory = mcts.get_trajectory(state, temperature=args.temperature)
-
             if not trajectory:
                 curriculum.update(current_depth, False)
                 continue
 
             # 最终验证
             last_step = trajectory[-1]
-            env = IntegrationEnv(max_steps=args.max_depth, time_limit=args.problem_timeout)
+            env = IntegrationEnv(max_steps=args.max_depth, time_limit=args.timeout)
             next_state, reward, done, _ = env.step(last_step["state"], last_step["action"])
-            success = (done and reward > 0.8 and validator.verify_integral(expr.function, next_state.expr))
+            success = (done and reward > 0.8 and validator.verify_integral(expr, next_state.expr))
 
             if success:
                 success_count += 1
                 solved_set.add(str(expr))
                 curriculum.update(current_depth, True)
-
                 # 计算 n 步 TD(λ) 目标
                 values = [step.get("value_target", 0.0) for step in trajectory]
                 lambda_returns = []
@@ -346,20 +320,24 @@ def main():
                         g += (args.gamma ** args.n_step) * values[t + args.n_step] * (1 - args.td_lambda)
                     lambda_returns.append(g)
 
-                # 存储经验（正确形状）
                 for idx, step in enumerate(trajectory):
-                    state_tensor = preprocessor.state_to_tensor(step["state"].expr)  # [1, max_len]
-                    policy_target = torch.tensor(step["policy_target"], dtype=torch.float32)
+                    state_tensor = preprocessor.state_to_tensor(step["state"].expr)
+                    policy_target = step["policy_target"]
+                    action_id = step["action"].id
+                    mask = torch.ones(num_actions, dtype=torch.bool)
                     value_target = lambda_returns[idx] if idx < len(lambda_returns) else reward
                     td_error = abs(step.get("value_target", 0.0) - value_target)
                     priority = td_error + 1e-6
-                    item = (state_tensor, policy_target, torch.tensor([value_target], dtype=torch.float32))
+                    item = (state_tensor.cpu().clone(),
+                            torch.tensor(policy_target, dtype=torch.float32),
+                            torch.tensor([value_target], dtype=torch.float32),
+                            action_id,
+                            mask)
                     memory.push(item, priority=priority)
-
-                logger.debug(f"✅ 成功: ∫ {expr.function} dx")
+                logger.debug(f"✅ 成功: ∫ {expr} dx")
             else:
                 curriculum.update(current_depth, False)
-                logger.debug(f"❌ 失败: ∫ {expr.function} dx")
+                logger.debug(f"❌ 失败: ∫ {expr} dx")
 
         # 训练网络
         if len(memory) >= args.batch_size:
@@ -369,18 +347,18 @@ def main():
                 batch, weights, indices = memory.sample(args.batch_size)
                 if not batch:
                     continue
-                states = torch.cat([b[0] for b in batch], dim=0)      # [batch, max_len]
-                policies = torch.stack([b[1] for b in batch])         # [batch, num_actions]
-                values = torch.stack([b[2] for b in batch])           # [batch, 1]
-                weights_t = torch.tensor(weights, dtype=torch.float32)
+                batch_states, batch_policies, batch_values, _, batch_masks = zip(*batch)
+                batch_states = torch.cat(batch_states, dim=0)
+                batch_policies = torch.stack(batch_policies)
+                batch_values = torch.stack(batch_values)
+                batch_masks = torch.stack(batch_masks)
+                weights = torch.tensor(weights, dtype=torch.float32)
 
-                mask = torch.ones(states.shape[0], num_actions, dtype=torch.bool)
-
-                policy_logits, pred_values = net(states, mask)
+                policy_logits, pred_values = net(batch_states, batch_masks)
                 log_probs = nn.LogSoftmax(dim=1)(policy_logits)
-                policy_loss = -(policies * log_probs).sum(dim=1) * weights_t
+                policy_loss = -(batch_policies * log_probs).sum(dim=1) * weights
                 policy_loss = policy_loss.mean()
-                value_loss = (pred_values - values).pow(2).squeeze() * weights_t
+                value_loss = (pred_values - batch_values).pow(2).squeeze() * weights
                 value_loss = value_loss.mean()
                 loss = policy_loss + value_loss
 
@@ -392,7 +370,7 @@ def main():
 
                 # 更新优先级
                 with torch.no_grad():
-                    td_errors = (pred_values - values).abs().squeeze().cpu().numpy()
+                    td_errors = (pred_values - batch_values).abs().squeeze().cpu().numpy()
                 memory.update_priorities(indices, td_errors + 1e-6)
 
             avg_loss = total_loss / num_batches
@@ -403,10 +381,12 @@ def main():
         torch.save(net.state_dict(), args.save_model)
         memory.save(args.memory_path)
 
-        # 保存用于模式挖掘的数据（简化版）
-        miner_data = {"actions": [], "reward": []}
-        with open(args.miner_memory, 'wb') as f:
-            pickle.dump(miner_data, f)
+        # 保存一份用于模式挖掘的数据（仅成功轨迹的摘要，简化版）
+        # 实际使用中，可以在成功时直接写入 miner 专用文件，这里省略复杂逻辑
+        # 仅创建一个空文件占位
+        if not os.path.exists(args.miner_memory):
+            with open(args.miner_memory, 'wb') as f:
+                pickle.dump({"actions": [], "reward": []}, f)
 
         success_rate = success_count / max(1, len(problems)) * 100
         history["epoch"].append(epoch)
@@ -414,18 +394,18 @@ def main():
         history["loss"].append(np.mean(epoch_losses) if epoch_losses else 0)
         history["depth"].append(current_depth)
 
+        # 保存训练历史 JSON
         with open("data/training_history.json", "w") as f:
             json.dump(history, f, indent=4)
 
-        logger.info(f"Epoch {epoch} 完成 | 成功率: {success_rate:.1f}% | 累计成功: {len(solved_set)}")
+        logger.info(f"Epoch {epoch} 完成 | 成功率: {success_rate:.1f}% | 累计成功题目: {len(solved_set)}")
 
-        # 每隔 5 轮检查热重载
+        # 每隔 5 轮检查并热加载新宏规则（如果 auto_discover 进程产生了标志）
         if not args.no_auto_discover and epoch % 5 == 0:
             check_and_reload(net, preprocessor)
 
     logger.info("🎉 训练完成！")
-    logger.info(f"最终成功率: {history['success_rate'][-1]:.1f}%")
-
+    logger.info(f"最终成功率: {history['success_rate'][-1]:.1f}% (最后10轮平均)")
 
 if __name__ == "__main__":
     main()

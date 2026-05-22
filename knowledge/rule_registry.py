@@ -5,7 +5,7 @@ from typing import Dict, List, Callable, Optional
 
 # 全局注册表
 _RULE_REGISTRY: Dict[str, Callable] = {}
-_RULE_ID_MAP: Dict[str, int] = {}  # rule_name -> int id
+_RULE_ID_MAP: Dict[str, int] = {}   # rule_name -> int id
 _RULE_NAME_LIST: List[str] = []
 _LAST_ID = -1
 
@@ -23,7 +23,8 @@ def register_rule(rule_name: Optional[str] = None):
         nonlocal rule_name
         name = rule_name if rule_name is not None else func.__name__
         if name in _RULE_REGISTRY:
-            raise KeyError(f"规则 {name} 已经注册过")
+            # 允许重复注册（热重载时），但打印警告
+            print(f"⚠️ 规则 {name} 已存在，将被覆盖")
         _RULE_REGISTRY[name] = func
         return func
     return decorator
@@ -61,6 +62,28 @@ def get_num_rules() -> int:
 def is_valid_rule_id(rule_id: int) -> bool:
     return 0 <= rule_id < len(_RULE_NAME_LIST)
 
+def clear_registry():
+    """清空注册表（用于热重载前的清理）"""
+    global _RULE_REGISTRY, _RULE_ID_MAP, _RULE_NAME_LIST, _LAST_ID
+    _RULE_REGISTRY.clear()
+    _RULE_ID_MAP.clear()
+    _RULE_NAME_LIST.clear()
+    _LAST_ID = -1
+
+def reload_module(module_name: str = "knowledge.rules"):
+    """
+    热重载规则模块：清空注册表，重新导入模块，重建动作空间。
+    """
+    clear_registry()
+    if module_name in sys.modules:
+        import importlib
+        importlib.reload(sys.modules[module_name])
+    else:
+        import importlib
+        importlib.import_module(module_name)
+    build_action_space()
+    print(f"✅ 热重载完成，当前动作空间大小: {get_num_rules()}")
+
 # 兼容旧代码的接口（供训练时使用）
 RULE_NAMES = _RULE_NAME_LIST
 RULE_DICT = _RULE_REGISTRY
@@ -71,5 +94,5 @@ if __name__ == "__main__":
     def dummy_rule(integral):
         return (integral, "rewrite")
     build_action_space()
-    print(RULE_NAMES)
-    print(RULE_DICT)
+    print("RULE_NAMES:", RULE_NAMES)
+    print("RULE_DICT:", RULE_DICT)
