@@ -3,7 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Callable, Optional, Dict
+from typing import List, Callable, Optional, Dict, Tuple
 
 class PositionalEncoding(nn.Module):
     """固定的正弦余弦位置编码（可学习版本可选）"""
@@ -24,14 +24,22 @@ class PositionalEncoding(nn.Module):
         self.learnable = learnable
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.learnable:
-            x = x + self.pe[:, :x.size(1), :]
-        else:
-            x = x + self.pe[:, :x.size(1), :]
+        x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
 
+class RelativePositionBias(nn.Module):
+    """相对位置偏置（用于 Transformer 自注意力）"""
+    def __init__(self, num_heads: int, max_len: int = 128):
+        super().__init__()
+        self.num_heads = num_heads
+        self.max_len = max_len
+        self.relative_bias = nn.Parameter(torch.zeros(1, num_heads, max_len, max_len))
+
+    def forward(self, seq_len: int) -> torch.Tensor:
+        return self.relative_bias[:, :, :seq_len, :seq_len]
+
 class MaskedAvgPool(nn.Module):
-    """带掩码的平均池化，用于聚合序列特征"""
+    """带掩码的平均池化"""
     def forward(self, x: torch.Tensor, src_key_padding_mask: torch.Tensor) -> torch.Tensor:
         mask = ~src_key_padding_mask
         mask = mask.unsqueeze(-1).float()
@@ -42,7 +50,7 @@ class MaskedAvgPool(nn.Module):
 
 class TransformerEncoderWithResidual(nn.Module):
     """Transformer编码器层，包含自注意力、前馈网络、残差连接和层归一化"""
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int, dropout: float = 0.1):
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int, dropout: float = 0.1, use_rel_pos: bool = False):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
         self.linear1 = nn.Linear(d_model, dim_feedforward)
@@ -50,13 +58,18 @@ class TransformerEncoderWithResidual(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
+        self.use_rel_pos = use_rel_pos
+        if use_rel_pos:
+            self.rel_pos_bias = RelativePositionBias(nhead)
 
     def forward(self, src: torch.Tensor, src_key_padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        # Self-attention with residual
-        src2, _ = self.self_attn(src, src, src, key_padding_mask=src_key_padding_mask)
+        seq_len = src.size(1)
+        attn_mask = None
+        if self.use_rel_pos:
+            attn_mask = self.rel_pos_bias(seq_len).to(src.device)
+        src2, _ = self.self_attn(src, src, src, key_padding_mask=src_key_padding_mask, attn_mask=attn_mask)
         src = src + self.dropout(src2)
         src = self.norm1(src)
-        # FFN with residual
         src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
         src = src + self.dropout(src2)
         src = self.norm2(src)
@@ -64,7 +77,8 @@ class TransformerEncoderWithResidual(nn.Module):
 
 class MathNet(nn.Module):
     """
-    增强版数学积分网络，支持动态动作空间和可学习温度。
+    双塔 + 动作定位头 (Rule + Location) 网络。
+    支持动态规则缓存、可学习温度、位置掩码。
     """
     def __init__(
             self,
@@ -77,26 +91,31 @@ class MathNet(nn.Module):
             dropout: float = 0.1,
             temperature: float = 0.07,
             learn_temperature: bool = False,
-            num_actions: Optional[int] = None
+            num_actions: Optional[int] = None,
+            use_depth_embedding: bool = True,
+            max_depth: int = 32
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
         self.max_len = max_len
         self.pad_id = 0
+        self.use_depth_embedding = use_depth_embedding
 
         self.embedding = nn.Embedding(vocab_size, d_model, padding_idx=self.pad_id)
+        if use_depth_embedding:
+            self.depth_embedding = nn.Embedding(max_depth, d_model, padding_idx=0)
         self.pos_encoder = PositionalEncoding(d_model, max_len, dropout, learnable=True)
         self.rule_pos_encoder = PositionalEncoding(d_model, max_len, dropout, learnable=True)
         self.pool = MaskedAvgPool()
 
-        # State encoder stack
+        # State encoder (左塔) - 输出 token-level 特征矩阵
         self.state_encoder_layers = nn.ModuleList([
-            TransformerEncoderWithResidual(d_model, nhead, 4 * d_model, dropout)
+            TransformerEncoderWithResidual(d_model, nhead, 4 * d_model, dropout, use_rel_pos=False)
             for _ in range(num_layers)
         ])
 
-        # Rule encoder stack
+        # Rule encoder (右塔)
         self.rule_encoder_layers = nn.ModuleList([
             TransformerEncoderWithResidual(d_model, nhead, 4 * d_model, dropout)
             for _ in range(rule_num_layers)
@@ -109,12 +128,15 @@ class MathNet(nn.Module):
             nn.Tanh()
         )
 
+        # 定位头 (Location Head): 跨注意力
+        self.location_cross_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+
         if learn_temperature:
             self.log_temperature = nn.Parameter(torch.tensor(math.log(temperature)))
         else:
             self.register_buffer('log_temperature', torch.tensor(math.log(temperature)))
 
-        # 规则缓存：嵌入矩阵和映射
+        # 规则缓存
         self._rule_embeddings = torch.empty(0, d_model)
         self.id_to_idx: Dict[int, int] = {}
         self.idx_to_id: Dict[int, int] = {}
@@ -125,31 +147,52 @@ class MathNet(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def _encode(self, x: torch.Tensor, mask: torch.Tensor, encoder_layers: nn.ModuleList, pos_encoder: PositionalEncoding) -> torch.Tensor:
-        """通用编码器：嵌入 + 位置编码 + 堆叠层 + 池化"""
-        emb = self.embedding(x) * math.sqrt(self.d_model)
-        emb = pos_encoder(emb)
-        for layer in encoder_layers:
-            emb = layer(emb, src_key_padding_mask=mask)
-        return self.pool(emb, mask)
+    def _encode_state(self, x: torch.Tensor, depth: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        编码状态，返回:
+        - state_vec: (batch, d_model) 全局池化向量
+        - H_state:   (batch, seq_len, d_model) token 级别特征矩阵
+        """
+        mask = (x == self.pad_id)  # (batch, seq_len)
+        if mask.all(dim=1).any():
+            mask[mask.all(dim=1), 0] = False
 
-    def _encode_state(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        return self._encode(x, mask, self.state_encoder_layers, self.pos_encoder)
+        emb = self.embedding(x) * math.sqrt(self.d_model)
+
+        if self.use_depth_embedding and depth is not None:
+            # 确保 depth 序列长度与 x 一致
+            if depth.size(1) != x.size(1):
+                if depth.size(1) < x.size(1):
+                    # 填充 pad_id (0) 到右侧
+                    pad = torch.zeros(depth.size(0), x.size(1) - depth.size(1), dtype=depth.dtype, device=depth.device)
+                    depth = torch.cat([depth, pad], dim=1)
+                else:
+                    # 截断到 x 的长度
+                    depth = depth[:, :x.size(1)]
+            depth_emb = self.depth_embedding(depth.clamp(max=self.depth_embedding.num_embeddings-1))
+            emb = emb + depth_emb
+
+        emb = self.pos_encoder(emb)
+
+        for layer in self.state_encoder_layers:
+            emb = layer(emb, src_key_padding_mask=mask)
+
+        H_state = emb
+        state_vec = self.pool(H_state, mask)   # (batch, d_model)
+        return state_vec, H_state
 
     def _encode_rules(self, rule_tokens: torch.Tensor) -> torch.Tensor:
         mask = (rule_tokens == self.pad_id)
-        # 避免全掩码
         if mask.all(dim=1).any():
             mask[mask.all(dim=1), 0] = False
-        return self._encode(rule_tokens, mask, self.rule_encoder_layers, self.rule_pos_encoder)
+        emb = self.embedding(rule_tokens) * math.sqrt(self.d_model)
+        emb = self.rule_pos_encoder(emb)
+        for layer in self.rule_encoder_layers:
+            emb = layer(emb, src_key_padding_mask=mask)
+        rule_vecs = self.pool(emb, mask)
+        return rule_vecs
 
     def refresh_rule_cache(self, rule_texts: List[str], tokenizer_fn: Callable, action_ids: Optional[List[int]] = None):
-        """
-        刷新规则缓存，支持动态动作空间。
-        rule_texts: 规则对应的字符串表示（用于 tokenization）
-        tokenizer_fn: 将字符串转换为 token 张量的函数
-        action_ids: 可选，每个规则对应的动作 ID（必须与 rule_texts 长度相同）
-        """
         device = next(self.parameters()).device
         if not rule_texts:
             self._rule_embeddings = torch.empty(0, self.d_model, device=device)
@@ -164,7 +207,6 @@ class MathNet(nn.Module):
         self.id_to_idx = {int(act_id): idx for idx, act_id in enumerate(action_ids)}
         self.idx_to_id = {idx: int(act_id) for idx, act_id in enumerate(action_ids)}
 
-        # 将每个规则文本转换为张量
         token_list = []
         for rule in rule_texts:
             tokens = tokenizer_fn(rule)
@@ -172,10 +214,8 @@ class MathNet(nn.Module):
                 tokens = torch.tensor(tokens, dtype=torch.long, device=device)
             else:
                 tokens = tokens.to(device)
-
             if tokens.dim() == 1:
                 tokens = tokens.unsqueeze(0)
-            # 截断或填充至 max_len
             if tokens.size(1) > self.max_len:
                 tokens = tokens[:, :self.max_len]
             elif tokens.size(1) < self.max_len:
@@ -190,15 +230,6 @@ class MathNet(nn.Module):
         self._rule_embeddings = rule_vecs.detach().clone()
         return self.id_to_idx
 
-    def get_rule_index(self, action_id: int) -> int:
-        if not self.rule_cache_valid:
-            raise RuntimeError("规则缓存为空。")
-        idx = self.id_to_idx.get(int(action_id))
-        if idx is not None:
-            return idx
-        # 未知动作 ID 返回最后一个索引（通常是占位）
-        return len(self._rule_embeddings) - 1 if len(self._rule_embeddings) > 0 else 0
-
     def get_rule_embeddings(self) -> torch.Tensor:
         return self._rule_embeddings
 
@@ -206,39 +237,66 @@ class MathNet(nn.Module):
     def rule_cache_valid(self) -> bool:
         return getattr(self, '_rule_embeddings', None) is not None and self._rule_embeddings.size(0) > 0
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        前向传播：
-        x: (batch, seq_len)  token 序列
-        mask: (batch, num_rules) 布尔掩码，True 表示合法动作
-        返回: policy_logits (batch, num_rules), value (batch, 1)
-        """
-        pad_mask = (x == self.pad_id)
-        # 确保每一行至少有一个有效位置（避免全掩码）
-        if pad_mask.all(dim=1).any():
-            pad_mask[pad_mask.all(dim=1), 0] = False
-
-        state_vec = self._encode_state(x, pad_mask)          # (batch, d_model)
-        value = self.value_head(state_vec)                   # (batch, 1)
-
+    def _get_rule_logits(self, state_vec: torch.Tensor) -> torch.Tensor:
         if not self.rule_cache_valid:
             raise RuntimeError("规则缓存为空。请先调用 refresh_rule_cache")
-
-        # 动态获取规则嵌入矩阵（可能在不同设备之间移动）
-        if self._rule_embeddings.device != x.device:
-            self._rule_embeddings = self._rule_embeddings.to(x.device)
-
-        rule_emb = self._rule_embeddings                     # (num_rules, d_model)
-        state_norm = F.normalize(state_vec, p=2, dim=-1)     # (batch, d_model)
-        cosine_sim = torch.matmul(state_norm, rule_emb.T)    # (batch, num_rules)
-
+        rule_emb = self._rule_embeddings.to(state_vec.device)
+        state_norm = F.normalize(state_vec, p=2, dim=-1)
+        cosine_sim = torch.matmul(state_norm, rule_emb.T)
         temperature = torch.exp(self.log_temperature.clamp(max=math.log(100.0)))
-        policy_logits = cosine_sim / temperature             # (batch, num_rules)
+        return cosine_sim / temperature
 
-        if mask is not None:
-            policy_logits = policy_logits.masked_fill(~mask, -1e9)
+    def _get_location_logits(self, H_state: torch.Tensor, rule_vec: torch.Tensor, location_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        rule_vec_unsqueezed = rule_vec.unsqueeze(1)
+        attn_out, attn_weights = self.location_cross_attn(
+            query=rule_vec_unsqueezed,
+            key=H_state,
+            value=H_state,
+            key_padding_mask=None
+        )
+        location_logits = torch.matmul(H_state, rule_vec.unsqueeze(-1)).squeeze(-1)
+        if location_mask is not None:
+            location_logits = location_logits.masked_fill(~location_mask, -1e9)
+        return location_logits
 
-        return policy_logits, value
+    def forward(
+        self,
+        x: torch.Tensor,
+        depth: Optional[torch.Tensor] = None,
+        rule_mask: Optional[torch.Tensor] = None,
+        location_mask: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        state_vec, H_state = self._encode_state(x, depth)
+        value = self.value_head(state_vec)
+
+        rule_logits = self._get_rule_logits(state_vec)
+        if rule_mask is not None:
+            rule_logits = rule_logits.masked_fill(~rule_mask, -1e9)
+
+        location_logits = self._get_location_logits(H_state, state_vec, location_mask)
+        return rule_logits, location_logits, value
+
+    def predict_rule_and_location(
+        self,
+        x: torch.Tensor,
+        depth: Optional[torch.Tensor] = None,
+        rule_mask: Optional[torch.Tensor] = None,
+        location_mask: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        state_vec, H_state = self._encode_state(x, depth)
+        value = self.value_head(state_vec)
+
+        rule_logits = self._get_rule_logits(state_vec)
+        if rule_mask is not None:
+            rule_logits = rule_logits.masked_fill(~rule_mask, -1e9)
+        rule_probs = F.softmax(rule_logits, dim=-1)
+
+        rule_emb = self._rule_embeddings.to(state_vec.device)
+        weighted_rule_vec = torch.matmul(rule_probs.unsqueeze(1), rule_emb).squeeze(1)
+        location_logits = self._get_location_logits(H_state, weighted_rule_vec, location_mask)
+        location_probs = F.softmax(location_logits, dim=-1)
+
+        return rule_probs, location_probs, value
 
 # 兼容原命名
 MathAlphaZeroNet = MathNet

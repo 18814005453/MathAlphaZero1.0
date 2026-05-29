@@ -2,17 +2,20 @@
 import torch
 import sympy as sp
 import re
-from typing import List, Dict, Tuple, Optional
-from sympy.core.sympify import SympifyError
+from typing import List, Dict, Tuple, Optional, Any
+from sympy.core.basic import Basic
+from sympy.core.symbol import Symbol
+from sympy.core.numbers import Number
+from sympy.core.function import FunctionClass, AppliedUndef
+from sympy import Integral, Derivative, Add, Mul, Pow
 
 class MathPreprocessor:
     """
     符号积分预处理器：规范化表达式、分词、编码为固定长度张量。
     升级特性：
-    - 基于 sympy 的深度规范化：expand, cancel, trigsimp, 排序加法乘法项
-    - 稳健的分词器支持数字、函数名、运算符、常量
-    - 支持批处理 tokenize_list
-    - 未知符号映射为 CONSTANT
+    - 支持精确的 AST 遍历，生成 token 序列并记录每个 token 对应的 SymPy 节点
+    - 支持括号深度/AST 层级深度嵌入
+    - 支持批处理
     """
     def __init__(self, max_len: int = 128, canonicalize_depth: int = 2):
         self.max_len = max_len
@@ -42,7 +45,6 @@ class MathPreprocessor:
                 unique.append(tok)
         self.token2id = {tok: i for i, tok in enumerate(unique)}
         self.id2token = {i: tok for tok, i in self.token2id.items()}
-        # 确保特殊 ID 正确
         assert self.token2id['[PAD]'] == 0
         assert self.token2id['[UNK]'] == 1
 
@@ -50,36 +52,30 @@ class MathPreprocessor:
     def vocab_size(self) -> int:
         return len(self.token2id)
 
-    # ---------- 规范化核心 ----------
+    # ---------- 规范化 ----------
     def _canonicalize_expr(self, expr: sp.Expr, depth: int = 0) -> sp.Expr:
-        """递归规范化表达式：展开、约分、三角简化、排序"""
         if depth > self.canonicalize_depth:
             return expr
-        # 基础简化
         expr = sp.expand(expr)
         expr = sp.cancel(expr)
         try:
             expr = sp.trigsimp(expr, deep=True)
         except Exception:
             pass
-        # 对子表达式递归
         if expr.is_Atom:
             return expr
         new_args = [self._canonicalize_expr(arg, depth+1) for arg in expr.args]
         expr = expr.func(*new_args)
 
-        # 加法项排序
         if expr.is_Add:
             terms = expr.as_ordered_terms(order='lex')
             expr = sp.Add(*terms, evaluate=False)
-        # 乘法因子排序：常数优先，然后按字符串
         elif expr.is_Mul:
             coeff, factors = expr.as_coeff_mul()
             if coeff != 1:
                 factors = (coeff,) + factors
             sorted_factors = sorted(factors, key=lambda x: (0 if x.is_number else 1, str(x)))
             expr = sp.Mul(*sorted_factors, evaluate=False)
-        # 幂简化
         elif expr.is_Pow:
             base = expr.base
             exp = expr.exp
@@ -90,7 +86,6 @@ class MathPreprocessor:
         return expr
 
     def standardize(self, expr: sp.Expr) -> sp.Expr:
-        """对外标准化接口"""
         if expr is None:
             return sp.Integer(0)
         try:
@@ -98,36 +93,129 @@ class MathPreprocessor:
         except Exception:
             return expr
 
-    # ---------- 分词 ----------
-    def _tokenize_srepr(self, s: str) -> List[str]:
+    # ---------- AST 遍历生成 token 序列及节点映射 ----------
+    def _traverse_expr(self, expr: sp.Expr, tokens: List[str], nodes: List[Optional[sp.Expr]], depth: int, depth_list: List[int]):
         """
-        将 SymPy 的 srepr 字符串分词，这是最可靠的方法。
-        示例：'Integral(Mul(Symbol('x'), Integer(2)), Tuple(Symbol('x')))'
+        递归遍历表达式，生成 token 序列，并记录每个 token 对应的节点（当前 expr）和当前深度。
+        策略：
+        - 对于原子节点 (Symbol, Number)，输出其名称，节点为 expr。
+        - 对于函数调用 (sin, cos, Integral...)，输出函数名，然后 '('，递归参数，最后 ')'。
+        - 对于加法 Add，按顺序输出每个子项，并在项之间输出 '+'（简化：假设总是输出所有项并用 '+' 连接）。
+        - 对于乘法 Mul，输出因子，因子间输出 '*'（同加法处理）。
+        - 对于幂 Pow，输出 base，然后 '**', exp。
+        - 对于括号，我们实际上不需要显式括号，因为函数调用自带了括号。但为了统一，我们不在普通表达式中加括号。
         """
-        # 使用正则提取标识符、数字、括号、逗号等
-        tokens = re.findall(r'[A-Za-z_][A-Za-z0-9_]*|\d+\.?\d*|[+\-*/%^&|~!<>=@$?:]+|[()\[\]{}.,;]', s)
-        # 过滤空
-        tokens = [t for t in tokens if t]
-        # 转换未知标识符为 CONSTANT
-        for i, tok in enumerate(tokens):
-            if tok.isalpha() and tok not in self.token2id and tok not in ('x', 'y', 'z', 't', 'u', 'v', 'w'):
-                # 保留变量名，但不在词表中的函数名或符号映射为 CONSTANT
-                # 注意：变量名本身在词表中，所以 isalpha() 且 not in token2id 且不是常见变量名，则替换
-                if tok not in ('x', 'y', 'z', 't', 'u', 'v', 'w'):
-                    tokens[i] = 'CONSTANT'
-        return tokens
+        # 记录当前节点对应的深度（即当前表达式的嵌套深度）
+        depth_list.append(depth)
+        if isinstance(expr, Symbol):
+            tokens.append(str(expr))
+            nodes.append(expr)
+        elif isinstance(expr, Number):
+            # 数字转字符串，注意整数和浮点数
+            if expr.is_Integer:
+                tokens.append(str(int(expr)))
+            else:
+                tokens.append(str(expr))
+            nodes.append(expr)
+        elif isinstance(expr, Integral):
+            # Integral(expr, (var, a, b)?) 简化为 Integral(expr, var) 形式
+            tokens.append('Integral')
+            nodes.append(expr)
+            # 左括号
+            tokens.append('(')
+            nodes.append(expr)
+            # 被积表达式
+            self._traverse_expr(expr.args[0], tokens, nodes, depth+1, depth_list)
+            # 积分变量
+            if len(expr.args) == 2 and isinstance(expr.args[1], sp.Tuple):
+                var = expr.args[1].args[0]
+                tokens.append(',')
+                nodes.append(expr)
+                self._traverse_expr(var, tokens, nodes, depth+1, depth_list)
+            else:
+                # 简单情况 Integral(f, x)
+                tokens.append(',')
+                nodes.append(expr)
+                self._traverse_expr(expr.args[1], tokens, nodes, depth+1, depth_list)
+            tokens.append(')')
+            nodes.append(expr)
+        elif isinstance(expr, (sp.FunctionClass, AppliedUndef)):
+            # 普通函数如 sin, cos, exp 等
+            func_name = expr.func.__name__
+            tokens.append(func_name)
+            nodes.append(expr)
+            tokens.append('(')
+            nodes.append(expr)
+            for i, arg in enumerate(expr.args):
+                if i > 0:
+                    tokens.append(',')
+                    nodes.append(expr)
+                self._traverse_expr(arg, tokens, nodes, depth+1, depth_list)
+            tokens.append(')')
+            nodes.append(expr)
+        elif isinstance(expr, Add):
+            # 加法: 项 + 项 + ...
+            args = expr.args
+            for i, arg in enumerate(args):
+                self._traverse_expr(arg, tokens, nodes, depth+1, depth_list)
+                if i < len(args)-1:
+                    tokens.append('+')
+                    nodes.append(expr)
+        elif isinstance(expr, Mul):
+            # 乘法: 因子 * 因子 * ...
+            args = expr.args
+            for i, arg in enumerate(args):
+                self._traverse_expr(arg, tokens, nodes, depth+1, depth_list)
+                if i < len(args)-1:
+                    tokens.append('*')
+                    nodes.append(expr)
+        elif isinstance(expr, Pow):
+            self._traverse_expr(expr.base, tokens, nodes, depth+1, depth_list)
+            tokens.append('**')
+            nodes.append(expr)
+            self._traverse_expr(expr.exp, tokens, nodes, depth+1, depth_list)
+        elif isinstance(expr, sp.Tuple):
+            tokens.append('(')
+            nodes.append(expr)
+            for i, arg in enumerate(expr.args):
+                if i > 0:
+                    tokens.append(',')
+                    nodes.append(expr)
+                self._traverse_expr(arg, tokens, nodes, depth+1, depth_list)
+            tokens.append(')')
+            nodes.append(expr)
+        else:
+            # 其他未知类型，转为字符串（可能丢失信息，但 fallback）
+            s = str(expr)
+            # 简单分词
+            parts = re.findall(r'[A-Za-z_][A-Za-z0-9_]*|\d+\.?\d*|[+\-*/%^&|~!<>=@$?:]+|[()\[\]{}.,;]', s)
+            for p in parts:
+                tokens.append(p)
+                nodes.append(expr)
 
-    def expr_to_tokens(self, expr: sp.Expr) -> List[str]:
-        """将 SymPy 表达式转为 token 字符串列表"""
+    def ast_to_token_sequence_with_nodes(self, expr: sp.Expr) -> Tuple[List[str], List[Optional[sp.Expr]], List[int]]:
+        """
+        返回三元组 (tokens, nodes, depths)
+        - tokens: token 字符串列表
+        - nodes: 每个 token 对应的 SymPy 节点（表达式对象），None 可能对于括号等（但这里我们为所有 token 关联了节点）
+        - depths: 每个 token 对应的 AST 深度（括号嵌套层数）
+        """
         expr = self.standardize(expr)
-        # 使用 srepr 保证结构唯一
-        s = sp.srepr(expr)
-        return self._tokenize_srepr(s)
+        tokens = []
+        nodes = []
+        depths = []
+        self._traverse_expr(expr, tokens, nodes, 0, depths)
+        return tokens, nodes, depths
+
+    def get_bracket_depth(self, expr: sp.Expr) -> List[int]:
+        """返回每个 token 的括号深度（AST 深度），兼容原接口"""
+        _, _, depths = self.ast_to_token_sequence_with_nodes(expr)
+        return depths
 
     # ---------- 编码 ----------
     def encode(self, expr: sp.Expr) -> torch.Tensor:
         """返回形状 (1, max_len) 的 LongTensor"""
-        tokens = self.expr_to_tokens(expr)
+        tokens, _, _ = self.ast_to_token_sequence_with_nodes(expr)
         ids = [self.token2id.get(tok, self.unk_id) for tok in tokens]
         if len(ids) > self.max_len:
             ids = ids[:self.max_len]
@@ -139,15 +227,25 @@ class MathPreprocessor:
         """与 MCTS 引擎对接的接口，等同于 encode"""
         return self.encode(expr)
 
+    def state_to_tensor_with_depth(self, expr: sp.Expr) -> Tuple[torch.Tensor, torch.Tensor]:
+        """返回 (token_tensor, depth_tensor)，形状均为 (1, max_len)"""
+        tokens, _, depths = self.ast_to_token_sequence_with_nodes(expr)
+        ids = [self.token2id.get(tok, self.unk_id) for tok in tokens]
+        if len(ids) > self.max_len:
+            ids = ids[:self.max_len]
+            depths = depths[:self.max_len]
+        else:
+            pad_len = self.max_len - len(ids)
+            ids = ids + [self.pad_id] * pad_len
+            depths = depths + [0] * pad_len
+        token_tensor = torch.tensor(ids, dtype=torch.long).unsqueeze(0)
+        depth_tensor = torch.tensor(depths, dtype=torch.long).unsqueeze(0)
+        return token_tensor, depth_tensor
+
     def _string_to_ids(self, s: str) -> torch.Tensor:
-        """
-        将规则名称等字符串直接转换为 token ID 序列（1D 张量）。
-        用于刷新规则缓存。
-        """
-        # 对于规则名称，它本身就是一个 token（如 "PowerRule"），直接分词
-        # 但为了通用，我们仍然使用 srepr 风格的 tokenization？不，规则名称是标识符
-        # 简单处理：将字符串按字母数字分割
-        tokens = re.findall(r'[A-Za-z_][A-Za-z0-9_]*|\d+', s)
+        """将规则名称等字符串转换为 token ID 序列（1D 张量）"""
+        # 简单分词：按字母数字和分隔符
+        tokens = re.findall(r'[A-Za-z_][A-Za-z0-9_]*|\d+\.?\d*|[+\-*/%^&|~!<>=@$?:]+|[()\[\]{}.,;]', s)
         ids = [self.token2id.get(tok, self.unk_id) for tok in tokens]
         if len(ids) > self.max_len:
             ids = ids[:self.max_len]
@@ -156,18 +254,12 @@ class MathPreprocessor:
         return torch.tensor(ids, dtype=torch.long)
 
     def tokenize_list(self, string_list: List[str]) -> torch.Tensor:
-        """
-        批量处理字符串列表，返回形状 (batch, max_len)。
-        用于规则缓存刷新。
-        """
         if not string_list:
             return torch.empty((0, self.max_len), dtype=torch.long)
         tensor_list = [self._string_to_ids(s) for s in string_list]
         return torch.stack(tensor_list, dim=0)
 
-    # ---------- 解码（调试用） ----------
     def decode(self, tensor: torch.Tensor) -> str:
-        """将张量还原为 token 字符串（不保证可解析）"""
         ids = tensor.squeeze(0).tolist() if tensor.dim() == 2 else tensor.tolist()
         tokens = [self.id2token.get(i, '[UNK]') for i in ids if i != self.pad_id]
         return ' '.join(tokens)

@@ -4,13 +4,12 @@ import torch
 import sympy as sp
 from sympy import SympifyError
 
-from knowledge.rules import RULE_NAMES          # 导入规则文本列表
-from core.network import MathAlphaZeroNet
+from knowledge.rule_registry import get_all_rule_names, get_num_rules
+from core.network import MathNet
 from core.engine import MCTS
 from utils.preprocessor import MathPreprocessor
 from utils.validator import MathValidator
 from core.state import IntegrationState
-from core.env import IntegrationEnv         # 用于获取所有动作
 
 
 def main():
@@ -29,13 +28,18 @@ def main():
     preprocessor = MathPreprocessor(max_len=128)
     validator = MathValidator()
 
-    # 1. 创建网络 - 删除了 num_actions 参数，适配双塔架构
-    net = MathAlphaZeroNet(
+    # 1. 创建双塔网络
+    net = MathNet(
         vocab_size=preprocessor.vocab_size,
         d_model=128,
         nhead=4,
-        num_layers=3
-    ).to(device)  # 将网络搬移到加速设备
+        num_layers=3,
+        rule_num_layers=2,
+        max_len=128,
+        dropout=0.1,
+        use_depth_embedding=True,
+        max_depth=32
+    ).to(device)
 
     # 加载预训练权重
     model_path = "data/brain.pth"
@@ -54,25 +58,15 @@ def main():
     # 设置网络为评估模式（关闭 Dropout）
     net.eval()
 
-    # ========== 3. 规则缓存注入（通电激活双塔） ==========
-    try:
-        temp_env = IntegrationEnv()
-        if hasattr(temp_env, 'get_all_possible_actions'):
-            all_actions = temp_env.get_all_possible_actions()
-            action_ids = [act.id for act in all_actions]
-        else:
-            raise AttributeError
-    except AttributeError:
-        # 后备方案：如果环境还没写好 get_all_possible_actions，直接用数组下标
-        action_ids = list(range(len(RULE_NAMES)))
-
-    # 注入规则缓存（网络会在此刻生成规则的高维向量矩阵）
+    # ========== 3. 规则缓存注入 ==========
+    rule_names = get_all_rule_names()
+    action_ids = list(range(get_num_rules()))
     net.refresh_rule_cache(
-        rule_texts=RULE_NAMES,
-        tokenizer_fn=preprocessor.tokenize_list,   # 需确保 Preprocessor 实现了批量分词
+        rule_texts=rule_names,
+        tokenizer_fn=preprocessor.tokenize_list,
         action_ids=action_ids
     )
-    print(f"✅ 规则缓存已刷新，当前可用规则数: {len(RULE_NAMES)}\n")
+    print(f"✅ 规则缓存已刷新，当前可用规则数: {len(rule_names)}\n")
     # ==============================================
 
     # 交互循环
@@ -117,7 +111,6 @@ def main():
 
                 # 收集推理路径
                 for step in trajectory:
-                    # step["action"].name 与 RULE_NAMES 中的文本一致
                     path.append((step["state"].expr, step["action"].name))
 
                 if done and reward > 0:
@@ -128,7 +121,7 @@ def main():
                 print("\n❌ 未能找到积分结果。可能原因：")
                 print("   - 该积分超出当前规则库范围 (动作空间缺失)")
                 print("   - 搜索深度不够（题目过于复杂）")
-                print("   - 模型尚未掌握该题型，请运行 auto_train.py 继续进化\n")
+                print("   - 模型尚未掌握该题型，请运行 train.py 继续进化\n")
                 continue
 
             # 获取最终表达式

@@ -84,6 +84,7 @@ def rule_linear_composition(integral):
     """∫ f(ax+b) dx → 换元"""
     if not isinstance(integral, Integral): return None
     func = integral.function
+    x = integral.limits[0][0]
     basic_funcs = (sin, cos, tan, sec, csc, cot, coth, exp, log,
                    asin, acos, atan, acot, asec, acsc,
                    sinh, cosh, tanh, sech, csch)
@@ -96,12 +97,8 @@ def rule_linear_composition(integral):
                     u_sym = Symbol('u')
                     f_u = func.func(u_sym)
                     new_int = Integral(f_u, u_sym)
-                    return ({
-                                "type": "substitution",
-                                "u_expr": arg,
-                                "factor": 1 / a,
-                                "integral": new_int
-                            }, "substitution")
+                    result_expr = new_int.subs(u_sym, arg) / a
+                    return (result_expr, "rewrite")
     if is_sqrt(func):
         inner = func.args[0]
         if is_linear_in_x(inner):
@@ -110,12 +107,8 @@ def rule_linear_composition(integral):
                 u_sym = Symbol('u')
                 f_u = sqrt(u_sym)
                 new_int = Integral(f_u, u_sym)
-                return ({
-                            "type": "substitution",
-                            "u_expr": inner,
-                            "factor": 1 / a,
-                            "integral": new_int
-                        }, "substitution")
+                result_expr = new_int.subs(u_sym, inner) / a
+                return (result_expr, "rewrite")
     return None
 
 
@@ -400,6 +393,7 @@ def rule_rational_improper(integral):
 def rule_sqrt_quadratic(integral):
     if not isinstance(integral, Integral): return None
     func = integral.function
+    x = integral.limits[0][0]
     sqrt_expr = None
     other = 1
     if is_sqrt(func):
@@ -425,12 +419,7 @@ def rule_sqrt_quadratic(integral):
             new_sqrt = sqrt(new_inner)
             new_other = other.subs(x, u_sym - h)
             new_integrand = new_other * new_sqrt
-            return ({
-                        "type": "substitution",
-                        "u_expr": x + h,
-                        "factor": 1,
-                        "integral": Integral(new_integrand, u_sym)
-                    }, "substitution")
+            return (Integral(new_integrand, u_sym), "rewrite")
     return None
 
 
@@ -498,6 +487,7 @@ def rule_integration_by_parts(integral):
 def rule_trig_substitution(integral):
     if not isinstance(integral, Integral): return None
     func = integral.function
+    x = integral.limits[0][0]
     sqrt_expr = None
     if is_sqrt(func):
         sqrt_expr = func
@@ -514,12 +504,7 @@ def rule_trig_substitution(integral):
             dx_dtheta = cos(theta)
             new_integrand = func.subs(x, x_theta) * dx_dtheta
             new_integrand = new_integrand.replace(sqrt(cos(theta) ** 2), cos(theta))
-            return ({
-                        "type": "substitution",
-                        "u_expr": asin(x),
-                        "factor": 1,
-                        "integral": Integral(new_integrand, theta)
-                    }, "substitution")
+            return (Integral(new_integrand, theta), "rewrite")
     return None
 
 
@@ -633,6 +618,258 @@ def rule_simplify(integral):
     trig_simp = TR2i(func)
     if trig_simp != func:
         return (Integral(trig_simp, x), "rewrite")
+    return None
+
+
+# ==================== NEW RULES v5.0 ====================
+
+@register_rule()
+def rule_complete_derivative(integral):
+    """detect f'(x)/f(x) → log|f(x)| and f'(x)*g(f(x)) patterns"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if func.is_Pow and func.exp == -1:
+        denom = func.base
+        num = 1
+    elif func.is_Mul:
+        num, denom_terms = 1, []
+        has_recip = False
+        for arg in func.args:
+            if isinstance(arg, Pow) and arg.exp == -1:
+                denom_terms.append(arg.base)
+                has_recip = True
+            else:
+                num *= arg
+        if has_recip:
+            denom = Mul(*denom_terms)
+        else:
+            return None
+    else:
+        return None
+    # check if numerator is derivative of denominator
+    try:
+        d_denom = diff(denom, x)
+        ratio = simplify(num / d_denom)
+        if ratio.is_constant(x):
+            return (ratio * log(Abs(denom)), "solved")
+    except Exception:
+        pass
+    return None
+
+
+@register_rule()
+def rule_integration_by_parts_cyclic(integral):
+    """cyclic integration by parts: ∫ e^(ax) * sin(bx) dx or ∫ e^(ax) * cos(bx) dx"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if not func.is_Mul:
+        return None
+    exp_part, trig_part = None, None
+    for arg in func.args:
+        if arg.func == exp:
+            exp_part = arg
+        elif arg.func in (sin, cos):
+            trig_part = arg
+    if exp_part is None or trig_part is None:
+        return None
+    e_arg = exp_part.args[0]
+    t_arg = trig_part.args[0]
+    if not (is_linear_in_x(e_arg) and is_linear_in_x(t_arg)):
+        return None
+    a_coef, _ = linear_coeff(e_arg)
+    b_coef, _ = linear_coeff(t_arg)
+    if a_coef == 0 or b_coef == 0:
+        return None
+    a, b_val = simplify(a_coef), simplify(b_coef)
+    a_sq_plus_b_sq = a**2 + b_val**2
+    if trig_part.func == sin:
+        result = exp_part * (a * sin(t_arg) - b_val * cos(t_arg)) / a_sq_plus_b_sq
+    else:
+        result = exp_part * (a * cos(t_arg) + b_val * sin(t_arg)) / a_sq_plus_b_sq
+    return (result, "solved")
+
+
+@register_rule()
+def rule_u_substitution(integral):
+    """detect ∫ f(g(x)) * g'(x) dx → F(g(x)) via chain rule reverse"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if not func.is_Mul or len(func.args) < 2:
+        return None
+    # try each factor as candidate for g'(x), remaining as f(g(x))
+    args = list(func.args)
+    for i, candidate_deriv in enumerate(args):
+        remaining = Mul(*(args[:i] + args[i+1:]))
+        # try to identify what function candidate_deriv is the derivative of
+        try:
+            antideriv = sympy.integrate(candidate_deriv, x)
+            if antideriv.has(Integral):
+                continue
+        except Exception:
+            continue
+        # if candidate_deriv is polynomial in x
+        inner = antideriv
+        if inner.is_Atom or inner == 0:
+            continue
+        # try substituting u = inner
+        u_sym = Symbol('u')
+        try:
+            new_func = remaining.subs(inner, u_sym)
+            if new_func == remaining:  # no substitution actually happened
+                continue
+            if not new_func.has(u_sym):
+                continue
+            new_integral = Integral(new_func, u_sym)
+            return (new_integral.subs(u_sym, inner), "rewrite")
+        except Exception:
+            continue
+    return None
+
+
+@register_rule()
+def rule_partial_fractions(integral):
+    """partial fraction decomposition for rational functions"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if not is_rational_function(func, x):
+        return None
+    num, den = func.as_numer_denom()
+    # handle improper fraction first
+    if num.is_polynomial(x) and den.is_polynomial(x):
+        from sympy import poly, div
+        try:
+            quo, rem = div(poly(num, x), poly(den, x))
+            if not quo.is_zero:
+                q_expr = quo.as_expr()
+                r_expr = rem.as_expr() / den
+                return (Integral(q_expr, x) + Integral(r_expr, x), "rewrite")
+        except Exception:
+            pass
+    try:
+        decomp = apart(func, x)
+        if decomp != func and isinstance(decomp, Add):
+            return (Add(*[Integral(t, x) for t in decomp.args]), "rewrite")
+    except Exception:
+        pass
+    return None
+
+
+@register_rule()
+def rule_complete_square(integral):
+    """complete the square for 1/sqrt(ax²+bx+c) or sqrt(ax²+bx+c) patterns"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    target = None
+    if is_sqrt(func):
+        inner = func.args[0]
+        target = func
+    elif isinstance(func, Pow) and func.exp == Rational(-1, 2):
+        inner = func.base
+        target = func
+    else:
+        return None
+    if not inner.is_polynomial(x) or degree(inner, x) != 2:
+        return None
+    poly_expr = Poly(inner, x)
+    a = poly_expr.coeff_monomial(x**2)
+    b = poly_expr.coeff_monomial(x)
+    c = poly_expr.coeff_monomial(1)
+    if a == 0:
+        return None
+    # complete: a*(x + b/(2a))² + (c - b²/(4a))
+    h = simplify(-b / (2*a))
+    k = simplify(c - b**2/(4*a))
+    u_sym = Symbol('u')
+    if a > 0:
+        new_sqrt = sqrt(a * u_sym**2 + k)
+    else:
+        new_sqrt = sqrt(-(-a * u_sym**2 + k))
+    result = new_sqrt.subs(u_sym, x - h)
+    return (Integral(result, x), "rewrite")
+
+
+@register_rule()
+def rule_reciprocal_substitution(integral):
+    """x → 1/t for rational functions with sqrt(ax²+bx+c), especially 1/(x*sqrt(...))"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    t = Symbol('t')
+    # check if integrand contains 1/x factor and sqrt(quadratic)
+    if not (func.has(1/x) or (isinstance(func, Pow) and func.exp < 0 and func.base.has(x))):
+        return None
+    # attempt reciprocal substitution
+    new_x = 1/t
+    dx_dt = -1/t**2
+    try:
+        new_func = func.subs(x, new_x) * dx_dt
+        new_func = simplify(new_func)
+        if new_func.has(Integral):
+            return None
+        new_integral = Integral(new_func, t)
+        return (new_integral.subs(t, 1/x), "rewrite")
+    except Exception:
+        return None
+
+
+@register_rule()
+def rule_trig_half_angle(integral):
+    """half-angle substitution t=tan(x/2) for rational functions of sin(x), cos(x)
+    sin(x) = 2t/(1+t²), cos(x) = (1-t²)/(1+t²), dx = 2/(1+t²) dt"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if not (func.has(sin) and func.has(cos)):
+        return None
+    # check if it's a rational combination of sin and cos
+    t = Symbol('t')
+    try:
+        sin_expr = 2*t/(1 + t**2)
+        cos_expr = (1 - t**2)/(1 + t**2)
+        dx_dt = 2/(1 + t**2)
+        new_func = func.subs({sin(x): sin_expr, cos(x): cos_expr}) * dx_dt
+        new_func = simplify(new_func)
+        new_integral = Integral(new_func, t)
+        back_sub = new_integral.subs(t, tan(x/2))
+        return (back_sub, "rewrite")
+    except Exception:
+        return None
+
+
+@register_rule()
+def rule_expand_polynomial(integral):
+    """expand polynomial before integrating"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if func.is_polynomial(x):
+        expanded = expand(func)
+        if expanded != func and isinstance(expanded, Add):
+            return (Add(*[Integral(t, x) for t in expanded.args]), "rewrite")
+    if func.is_Mul and all(a.is_polynomial(x) or (isinstance(a, Pow) and a.base.is_polynomial(x) and a.exp.is_Integer and a.exp >= 0) for a in func.args):
+        expanded = expand(func)
+        if expanded != func:
+            return (Integral(expanded, x), "rewrite")
+    return None
+
+
+@register_rule()
+def rule_separate_numerator(integral):
+    """separate fraction: (a+b)/c → a/c + b/c"""
+    if not isinstance(integral, Integral): return None
+    func = integral.function
+    x = integral.limits[0][0]
+    if not func.is_Mul and not isinstance(func, Pow):
+        return None
+    num, den = func.as_numer_denom()
+    if num.is_Add and len(num.args) >= 2:
+        terms = [Integral(t/den, x) for t in num.args]
+        return (Add(*terms), "rewrite")
     return None
 
 
